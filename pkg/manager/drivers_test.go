@@ -1,6 +1,7 @@
 package manager_test
 
 import (
+	"fmt"
 	"llamactl/pkg/backends"
 	"llamactl/pkg/database"
 	"llamactl/pkg/instance"
@@ -99,26 +100,26 @@ func TestUpdateInstance_DriverKindIsFixed(t *testing.T) {
 	})
 }
 
-// Servers that run elsewhere use none of the local resources: they don't
-// reserve ports from the local range, count toward max_instances, or
-// count toward max_running_instances while running.
+// Servers that run elsewhere use none of the local resources: however many
+// there are and whatever ports they listen on, they don't count toward
+// max_instances (10 here) or max_running_instances, and every one of their
+// ports is still free for a local instance.
 func TestDriverInstances_UseNoLocalResources(t *testing.T) {
 	dir := t.TempDir()
 	rapid.Check(t, func(t *rapid.T) {
-		mgr := newDriverTestManager(t, dir) // max_instances 10, max_running 10
+		mgr := newDriverTestManager(t, dir)
 		defer mgr.Shutdown()
 
-		ports := rapid.SliceOfN(rapid.IntRange(8000, 8020), 11, 15).Draw(t, "ports")
+		ports := rapid.SliceOfNDistinct(rapid.IntRange(8000, 8100), 11, 15, rapid.ID[int]).Draw(t, "ports")
 		for i, port := range ports {
 			kind := rapid.SampledFrom([]string{"external", "slurm"}).Draw(t, "kind")
-			name := "svc" + string(rune('a'+i))
-			// An external service with no commands is always on: start just marks it running
 			opts := driverOptions(kind, "gpu01", port, "run", "ssh")
 			if opts.External != nil {
-				opts.External.StartCommand = nil
+				opts.External.StartCommand = nil // always on: start only marks it running
 			}
+			name := fmt.Sprintf("svc%d", i)
 			if _, err := mgr.CreateInstance(name, opts); err != nil {
-				t.Fatalf("instance %d of %d (more than max_instances): %v", i+1, len(ports), err)
+				t.Fatalf("instance %d of %d: %v", i+1, len(ports), err)
 			}
 			if kind == "external" {
 				if _, err := mgr.StartInstance(name); err != nil {
@@ -130,31 +131,13 @@ func TestDriverInstances_UseNoLocalResources(t *testing.T) {
 			t.Fatal("instances running elsewhere must not count toward the local running limit")
 		}
 
-		// Every port they listen on is still free locally
-		for i, port := range ports {
-			local := &instance.Options{BackendOptions: backends.Options{
-				BackendType:        backends.BackendTypeLlamaCpp,
-				LlamaServerOptions: &backends.LlamaServerOptions{Model: "/m.gguf", Port: port},
-			}}
-			name := "local" + string(rune('a'+i))
-			if _, err := mgr.CreateInstance(name, local); err != nil {
-				if strings.Contains(err.Error(), "already in use") && containsBefore(ports, i, port) {
-					continue // a local instance already took it
-				}
-				if strings.Contains(err.Error(), "maximum number of instances") {
-					return // the local limit applies to local instances only
-				}
-				t.Fatalf("local port %d: %v", port, err)
-			}
+		port := rapid.SampledFrom(ports).Draw(t, "localPort")
+		local := &instance.Options{BackendOptions: backends.Options{
+			BackendType:        backends.BackendTypeLlamaCpp,
+			LlamaServerOptions: &backends.LlamaServerOptions{Model: "/m.gguf", Port: port},
+		}}
+		if _, err := mgr.CreateInstance("local", local); err != nil {
+			t.Fatalf("local instance on port %d: %v", port, err)
 		}
 	})
-}
-
-func containsBefore(ports []int, i, port int) bool {
-	for _, p := range ports[:i] {
-		if p == port {
-			return true
-		}
-	}
-	return false
 }

@@ -126,8 +126,10 @@ func newSlurmTestInstance(so *SlurmOptions, sched *fakeScheduler, healthy *atomi
 	inst = New("qwen", cfg, &Options{
 		Slurm: so,
 		BackendOptions: backends.Options{
-			BackendType:       backends.BackendTypeVllm,
-			VllmServerOptions: &backends.VllmServerOptions{Model: "m", Port: port},
+			BackendType: backends.BackendTypeVllm,
+			// The host in the options is never used: requests must go to the
+			// job's node (127.0.0.1 via the template), not here
+			VllmServerOptions: &backends.VllmServerOptions{Model: "m", Host: "options-host.invalid", Port: port},
 		},
 	}, nil)
 	d = inst.driver.(*slurmJob)
@@ -147,10 +149,13 @@ func newSlurmTestInstance(so *SlurmOptions, sched *fakeScheduler, healthy *atomi
 //   - if an eligible job is in the queue, it is followed
 //   - a job that ends on its own leaves the instance failed exactly when
 //     sacct says it ended badly
+//   - requests reach a running job's node, and logs are read from inside
+//     the followed job (and refused without one)
 //
 // and these on every action:
 //
 //   - start never submits a second job while one is queued or running
+//   - a squeue listing taken just before a submission can't end the new job
 //   - stop cancels the followed job and leaves the instance stopped
 func TestSlurmDriver_StateMachine(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
@@ -158,7 +163,7 @@ func TestSlurmDriver_StateMachine(t *testing.T) {
 		sched := newFakeScheduler()
 		sched.cancelLags = rapid.Bool().Draw(t, "cancelLags")
 		var healthy atomic.Bool
-		inst, d, cleanup := newSlurmTestInstance(&SlurmOptions{Command: "serve", JobName: jobName}, sched, &healthy)
+		inst, d, cleanup := newSlurmTestInstance(&SlurmOptions{Command: "serve", JobName: jobName, LogPath: "/logs/{name}-{jobid}.log"}, sched, &healthy)
 		defer cleanup()
 		name := d.jobName()
 
@@ -180,8 +185,16 @@ func TestSlurmDriver_StateMachine(t *testing.T) {
 			"start": func(t *rapid.T) {
 				wasActive := active()
 				before := len(sched.submitted)
+				stale, staleAt := sched.listing(), time.Now()
 				if err := inst.Start(); err != nil {
 					t.Fatalf("start: %v", err)
+				}
+				if !wasActive && rapid.Bool().Draw(t, "staleListing") {
+					// A poll that ran squeue before the submission lands now
+					d.update(context.Background(), stale, staleAt)
+					if j := tracked(); j == nil || j.ID != sched.submitted[before] {
+						t.Fatalf("stale listing ended the new job: tracked %+v", j)
+					}
 				}
 				switch {
 				case wasActive && len(sched.submitted) != before:
@@ -266,6 +279,15 @@ func TestSlurmDriver_StateMachine(t *testing.T) {
 					}
 				}
 
+				logs, logErr := inst.GetLogs(7)
+				if j == nil || j.FirstNode() == "" {
+					if logErr == nil {
+						t.Fatal("logs must be refused without a job on a node")
+					}
+				} else if want := fmt.Sprintf("srun --jobid=%s --overlap -N1 -n1 tail -n 7 /logs/qwen-%s.log", j.ID, j.ID); logs != want {
+					t.Fatalf("logs = %q, %v; want %q", logs, logErr, want)
+				}
+
 				switch {
 				case j == nil:
 					if st != Stopped && st != Failed {
@@ -294,6 +316,10 @@ func TestSlurmDriver_StateMachine(t *testing.T) {
 					if inst.GetHost() != "127.0.0.1" {
 						t.Fatalf("running job but host %q", inst.GetHost())
 					}
+					rec := httptest.NewRecorder()
+					if err := inst.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/models", nil)); err != nil || rec.Code == http.StatusBadGateway {
+						t.Fatalf("request didn't reach the node: %v, %d", err, rec.Code)
+					}
 				}
 
 				// A followed job that left the queue: failed iff it ended badly
@@ -312,47 +338,17 @@ func TestSlurmDriver_StateMachine(t *testing.T) {
 	})
 }
 
-// A squeue listing taken before a job was submitted doesn't contain it;
-// applying that listing late must not end the new job.
-func TestSlurmDriver_StaleListingKeepsNewJob(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		sched := newFakeScheduler()
-		var healthy atomic.Bool
-		inst, d, cleanup := newSlurmTestInstance(&SlurmOptions{Command: "serve"}, sched, &healthy)
-		defer cleanup()
-
-		stale := sched.listing()
-		queriedAt := time.Now().Add(-time.Duration(rapid.IntRange(1, 1000).Draw(t, "ms")) * time.Millisecond)
-		if err := inst.Start(); err != nil {
-			t.Fatal(err)
-		}
-		d.update(context.Background(), stale, queriedAt)
-
-		if j := d.currentJob(); j == nil || j.ID != sched.submitted[0] || inst.GetStatus() != Pending {
-			t.Fatalf("new job lost: job %+v, status %v", j, inst.GetStatus())
-		}
-	})
-}
-
-// sbatch receives exactly the options that were set, each once, with the
-// job name first and the command last; nothing is written to the submit
-// directory unless an output file is chosen.
+// sbatch receives exactly the options that were set, each once, then the
+// extra arguments in order, then the command; output goes nowhere unless a
+// file is chosen.
 func TestSlurmDriver_SbatchArgsMirrorOptions(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		str := func(label string) string {
-			return rapid.StringMatching(`([A-Za-z0-9:/._-]{1,12})?`).Draw(t, label)
-		}
+		str := func(label string) string { return rapid.StringMatching(`([A-Za-z0-9:/._-]{1,12})?`).Draw(t, label) }
+		num := func(label string) int { return rapid.IntRange(0, 8).Draw(t, label) }
 		so := &SlurmOptions{
-			Command:   rapid.StringMatching(`[^\x00]{1,30}`).Draw(t, "command"),
-			JobName:   str("jobName"),
-			Partition: str("partition"),
-			Nodelist:  str("nodelist"),
-			Account:   str("account"),
-			GPUs:      rapid.IntRange(0, 8).Draw(t, "gpus"),
-			CPUs:      rapid.IntRange(0, 64).Draw(t, "cpus"),
-			Memory:    str("memory"),
-			TimeLimit: str("time"),
-			Output:    str("output"),
+			Command: rapid.StringMatching(`[^\x00]{1,30}`).Draw(t, "command"),
+			JobName: str("jobName"), Partition: str("partition"), Nodelist: str("nodelist"), Account: str("account"),
+			GPUs: num("gpus"), CPUs: num("cpus"), Memory: str("memory"), TimeLimit: str("time"), Output: str("output"),
 			ExtraArgs: rapid.SliceOfN(rapid.StringMatching(`--[a-z]{1,8}=[a-z0-9]{1,4}`), 0, 3).Draw(t, "extra"),
 		}
 		sched := newFakeScheduler()
@@ -362,81 +358,41 @@ func TestSlurmDriver_SbatchArgsMirrorOptions(t *testing.T) {
 		if err := inst.Start(); err != nil {
 			t.Fatal(err)
 		}
+
+		or := func(v, def string) string {
+			if v == "" {
+				return def
+			}
+			return v
+		}
+		count := func(n int) string {
+			if n == 0 {
+				return ""
+			}
+			return strconv.Itoa(n)
+		}
+		want := []string{"--job-name=" + or(so.JobName, "llamactl-qwen"), "--output=" + or(so.Output, "/dev/null")}
+		for flag, v := range map[string]string{
+			"--partition=": so.Partition, "--nodelist=": so.Nodelist, "--account=": so.Account,
+			"--gres=gpu:": count(so.GPUs), "--cpus-per-task=": count(so.CPUs), "--mem=": so.Memory, "--time=": so.TimeLimit,
+		} {
+			if v != "" {
+				want = append(want, flag+v)
+			}
+		}
+
 		args := sched.lastArgs
-
-		wantName := so.JobName
-		if wantName == "" {
-			wantName = "llamactl-qwen"
-		}
-		wantOutput := so.Output
-		if wantOutput == "" {
-			wantOutput = "/dev/null"
-		}
-		if args[0] != "--job-name="+wantName || args[len(args)-1] != "--wrap="+so.Command {
-			t.Fatalf("job name must come first and the command last: %q", args)
-		}
-
-		expect := map[string]string{"--output=": wantOutput}
-		set := func(flag, value string) {
-			if value != "" {
-				expect[flag] = value
-			}
-		}
-		set("--partition=", so.Partition)
-		set("--nodelist=", so.Nodelist)
-		set("--account=", so.Account)
-		set("--mem=", so.Memory)
-		set("--time=", so.TimeLimit)
-		if so.CPUs > 0 {
-			expect["--cpus-per-task="] = strconv.Itoa(so.CPUs)
-		}
-		if so.GPUs > 0 {
-			expect["--gres="] = "gpu:" + strconv.Itoa(so.GPUs)
-		}
-
-		middle := args[1 : len(args)-1]
-		for _, flag := range []string{"--output=", "--partition=", "--nodelist=", "--account=", "--mem=", "--time=", "--cpus-per-task=", "--gres="} {
-			var found []string
-			for _, a := range middle {
-				if v, ok := strings.CutPrefix(a, flag); ok {
-					found = append(found, v)
-				}
-			}
-			want, ok := expect[flag]
-			if (!ok && len(found) > 0) || (ok && (len(found) != 1 || found[0] != want)) {
-				t.Fatalf("%s: got %q, want %q (args %q)", flag, found, want, args)
-			}
-		}
-		if !slices.Equal(middle[len(middle)-len(so.ExtraArgs):], so.ExtraArgs) {
-			t.Fatalf("extra args must be passed through in order: %q", args)
+		options := args[:len(args)-len(so.ExtraArgs)-1]
+		if !slices.Equal(sorted(options), sorted(want)) ||
+			!slices.Equal(args[len(options):len(args)-1], so.ExtraArgs) ||
+			args[len(args)-1] != "--wrap="+so.Command {
+			t.Fatalf("sbatch args %q, want options %q, extras %q, command %q", args, want, so.ExtraArgs, so.Command)
 		}
 	})
 }
 
-// The logs command gets the job, node, line count and log path filled in,
-// and is refused when there's no running job to read from.
-func TestSlurmDriver_LogsCommandSubstitution(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		dir := rapid.StringMatching(`/[a-z]{1,8}`).Draw(t, "dir")
-		lines := rapid.IntRange(1, 10000).Draw(t, "lines")
-		sched := newFakeScheduler()
-		var healthy atomic.Bool
-		inst, d, cleanup := newSlurmTestInstance(&SlurmOptions{Command: "serve", LogPath: dir + "/{name}-{jobid}.log"}, sched, &healthy)
-		defer cleanup()
-
-		if _, err := inst.GetLogs(lines); err == nil {
-			t.Fatal("logs must be refused without a running job")
-		}
-
-		sched.mu.Lock()
-		j := sched.add(d.jobName(), slurm.StateRunning, "gpu07")
-		sched.mu.Unlock()
-		d.update(context.Background(), sched.listing(), time.Now())
-
-		out, err := inst.GetLogs(lines)
-		want := fmt.Sprintf("srun --jobid=%s --overlap -N1 -n1 tail -n %d %s/qwen-%s.log", j.ID, lines, dir, j.ID)
-		if err != nil || out != want {
-			t.Fatalf("logs = %q, %v; want %q", out, err, want)
-		}
-	})
+func sorted(s []string) []string {
+	c := slices.Clone(s)
+	slices.Sort(c)
+	return c
 }

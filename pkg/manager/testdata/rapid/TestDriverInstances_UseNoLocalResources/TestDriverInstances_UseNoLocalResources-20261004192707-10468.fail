@@ -1,0 +1,85 @@
+# 2026/10/04 19:27:07.993796 [TestDriverInstances_UseNoLocalResources] [rapid] draw ports: []int{8001, 8004, 8002, 8005, 8007, 8008, 8006, 8009, 8010, 8000, 8003}
+# 2026/10/04 19:27:07.993879 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.994635 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.995209 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.995640 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.996298 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.996798 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.997249 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.997710 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.998148 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.998594 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.999193 [TestDriverInstances_UseNoLocalResources] [rapid] draw kind: "external"
+# 2026/10/04 19:27:07.999646 [TestDriverInstances_UseNoLocalResources] [rapid] draw localPort: 8001
+# 2026/10/04 19:27:07.999659 [TestDriverInstances_UseNoLocalResources] local instance on port 8001: port 8001 is already in use: port 8001 is already allocated
+# 
+v0.4.8#3057600434555710058
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x6b74f03291620
+0x4
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x6b74f03291620
+0x7
+0x0
+0x0
+0x9867f1f40f739
+0x8
+0x0
+0x0
+0x6b74f03291620
+0x6
+0x0
+0x0
+0x9867f1f40f739
+0x9
+0x0
+0x0
+0x9867f1f40f739
+0xa
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

@@ -6,15 +6,14 @@
 package slurm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"llamactl/pkg/command"
 )
 
 // DefaultTimeout bounds every Slurm command so a hung controller can't wedge
@@ -125,36 +124,7 @@ func (c *Client) run(ctx context.Context, argv []string, env map[string]string) 
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	full := append(append([]string{}, c.Prefix...), argv...)
-	cmd := exec.CommandContext(ctx, full[0], full[1:]...)
-	if len(env) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = strings.TrimSpace(stdout.String())
-		}
-		if len(msg) > 500 {
-			msg = msg[len(msg)-500:]
-		}
-		if msg != "" {
-			return stdout.String(), fmt.Errorf("%s: %w: %s", argv[0], err, msg)
-		}
-		return stdout.String(), fmt.Errorf("%s: %w", argv[0], err)
-	}
-	return stdout.String(), nil
+	return command.Run(ctx, timeout, append(append([]string{}, c.Prefix...), argv...), env)
 }
 
 // parseSubmitOutput extracts the job ID from `sbatch --parsable` output,

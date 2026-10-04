@@ -49,3 +49,5 @@ llamactl-*
 
 # Air live-reload build output
 tmp/
+# rapid property-test failure records (local only)
+testdata/rapid/

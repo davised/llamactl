@@ -1,6 +1,0 @@
-# 2026/10/04 18:18:31.775333 [TestSave_EveryStatusIsStorable] [rapid] draw status: 100
-# 2026/10/04 18:18:31.775470 [TestSave_EveryStatusIsStorable] saving status 100: failed to insert instance: CHECK constraint failed: status IN ('stopped', 'running', 'failed', 'restarting', 'shutting_down')
-# 
-v0.4.8#12294723008952996625
-0x6b74f03291620
-0x5

@@ -70,9 +70,6 @@ func (o *SlurmOptions) Validate() error {
 	if len(o.LogsCommand) > 0 && strings.TrimSpace(o.LogsCommand[0]) == "" {
 		return fmt.Errorf("slurm logs_command must start with a program name")
 	}
-	if o.JobName != "" && strings.ContainsAny(o.JobName, " \t\n") {
-		return fmt.Errorf("slurm job_name cannot contain whitespace")
-	}
 	return nil
 }
 
@@ -130,35 +127,30 @@ func (s *slurmJob) jobName() string {
 	return "llamactl-" + s.instance.Name
 }
 
-// sbatchArgs builds the sbatch arguments (after --parsable) for the job.
+// sbatchArgs builds the sbatch arguments (after --parsable) for the job:
+// the options that are set, then ExtraArgs, then the command.
 func (s *slurmJob) sbatchArgs() []string {
 	o := s.opts()
 	output := o.Output
 	if output == "" {
 		output = "/dev/null"
 	}
+	count := func(n int) string {
+		if n <= 0 {
+			return ""
+		}
+		return strconv.Itoa(n)
+	}
 
 	args := []string{"--job-name=" + s.jobName(), "--output=" + output}
-	if o.Partition != "" {
-		args = append(args, "--partition="+o.Partition)
-	}
-	if o.Nodelist != "" {
-		args = append(args, "--nodelist="+o.Nodelist)
-	}
-	if o.Account != "" {
-		args = append(args, "--account="+o.Account)
-	}
-	if o.GPUs > 0 {
-		args = append(args, "--gres=gpu:"+strconv.Itoa(o.GPUs))
-	}
-	if o.CPUs > 0 {
-		args = append(args, "--cpus-per-task="+strconv.Itoa(o.CPUs))
-	}
-	if o.Memory != "" {
-		args = append(args, "--mem="+o.Memory)
-	}
-	if o.TimeLimit != "" {
-		args = append(args, "--time="+o.TimeLimit)
+	for _, f := range [][2]string{
+		{"--partition=", o.Partition}, {"--nodelist=", o.Nodelist}, {"--account=", o.Account},
+		{"--gres=gpu:", count(o.GPUs)}, {"--cpus-per-task=", count(o.CPUs)},
+		{"--mem=", o.Memory}, {"--time=", o.TimeLimit},
+	} {
+		if f[1] != "" {
+			args = append(args, f[0]+f[1])
+		}
 	}
 	args = append(args, o.ExtraArgs...)
 	return append(args, "--wrap="+o.Command)
@@ -275,8 +267,7 @@ func (s *slurmJob) restart() error {
 }
 
 // waitForHealthy waits for the job to start and its server to answer. A job
-// can sit in the queue for a long time, so a timeout while still pending
-// says so instead of reporting an unhealthy server.
+// can sit in the queue for a long time, so the error says where it is.
 func (s *slurmJob) waitForHealthy(timeout int) error {
 	if timeout <= 0 {
 		timeout = 30
@@ -284,31 +275,21 @@ func (s *slurmJob) waitForHealthy(timeout int) error {
 	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
 
 	for {
-		switch st := s.instance.GetStatus(); st {
-		case Running:
-			remaining := int(time.Until(deadline).Seconds())
-			if remaining < 1 {
-				remaining = 1
-			}
-			return pollHealthy(s.instance, remaining)
-		case Pending, Starting:
-			if time.Now().After(deadline) {
-				if j := s.currentJob(); j != nil && st == Pending {
-					reason := ""
-					if j.Reason != "" {
-						reason = " (" + j.Reason + ")"
-					}
-					return fmt.Errorf("slurm job %s for instance %s is still queued%s", j.ID, s.instance.Name, reason)
-				}
-				return fmt.Errorf("instance %s did not become healthy within %d seconds", s.instance.Name, timeout)
-			}
-			time.Sleep(time.Second)
-		default:
-			if j := s.currentJob(); j != nil && j.State != "" {
-				return fmt.Errorf("instance %s is not running (slurm job %s %s)", s.instance.Name, j.ID, strings.ToLower(j.State))
-			}
-			return fmt.Errorf("instance %s is not running", s.instance.Name)
+		st := s.instance.GetStatus()
+		if st == Running {
+			return pollHealthy(s.instance, max(1, int(time.Until(deadline).Seconds())))
 		}
+		if (st != Pending && st != Starting) || time.Now().After(deadline) {
+			where := "no job"
+			if j := s.currentJob(); j != nil {
+				where = fmt.Sprintf("slurm job %s %s", j.ID, strings.ToLower(j.State))
+				if j.Reason != "" {
+					where += " (" + j.Reason + ")"
+				}
+			}
+			return fmt.Errorf("instance %s is not running after %d seconds: %s", s.instance.Name, timeout, where)
+		}
+		time.Sleep(time.Second)
 	}
 }
 
@@ -479,22 +460,16 @@ func (s *slurmJob) getLogs(numLines int) (string, error) {
 		cmd = defaultSlurmLogsCommand
 	}
 
-	lines := strconv.Itoa(numLines)
 	if numLines <= 0 {
-		lines = "100"
+		numLines = 100
 	}
-	vars := strings.NewReplacer("{name}", s.instance.Name, "{jobid}", jobID, "{node}", node)
-	logPath := vars.Replace(o.LogPath)
-
+	vars := strings.NewReplacer("{name}", s.instance.Name, "{jobid}", jobID, "{node}", node, "{lines}", strconv.Itoa(numLines))
 	args := make([]string, len(cmd))
 	for i, arg := range cmd {
-		if strings.Contains(arg, "{log_path}") && logPath == "" {
+		if strings.Contains(arg, "{log_path}") && o.LogPath == "" {
 			return "", fmt.Errorf("instance %s has no slurm log_path configured", s.instance.Name)
 		}
-		args[i] = strings.NewReplacer(
-			"{name}", s.instance.Name, "{jobid}", jobID, "{node}", node,
-			"{lines}", lines, "{log_path}", logPath,
-		).Replace(arg)
+		args[i] = vars.Replace(strings.ReplaceAll(arg, "{log_path}", o.LogPath))
 	}
 
 	return s.client.Run(context.Background(), args)

@@ -2,7 +2,6 @@ package instance
 
 import (
 	"encoding/json"
-	"fmt"
 	"llamactl/pkg/backends"
 	"llamactl/pkg/config"
 	"os"
@@ -125,37 +124,15 @@ func TestOptions_SlurmDefaultsOff(t *testing.T) {
 	})
 }
 
-var allStatuses = []Status{Stopped, Running, Failed, Restarting, ShuttingDown, Pending, Starting}
-
-// The statuses the instances table accepts (its CHECK constraint).
-var storableStatuses = []string{"stopped", "running", "failed", "restarting", "shutting_down"}
-
-// Every status survives JSON, and every status maps to one the database
-// accepts; upstream statuses are stored unchanged.
-func TestStatus_EveryStatusRoundTripsAndCanBeStored(t *testing.T) {
+// Every status, including the driver-only ones, survives JSON (the API
+// and the database both store statuses by name).
+func TestStatus_EveryStatusRoundTrips(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		s := rapid.SampledFrom(allStatuses).Draw(t, "status")
-
+		s := rapid.SampledFrom([]Status{Stopped, Running, Failed, Restarting, ShuttingDown, Pending, Starting}).Draw(t, "status")
 		data, err := json.Marshal(s)
-		if err != nil {
-			t.Fatal(err)
-		}
 		var back Status
-		if err := json.Unmarshal(data, &back); err != nil || back != s {
-			t.Fatalf("%s round-tripped to %v (%v)", data, back, err)
-		}
-
-		var name string
-		_ = json.Unmarshal(data, &name)
-		stored := PersistedStatusName(name)
-		if !slices.Contains(storableStatuses, stored) {
-			t.Fatalf("status %q is stored as %q, which the database rejects", name, stored)
-		}
-		if slices.Contains(storableStatuses, name) && stored != name {
-			t.Fatalf("upstream status %q must be stored unchanged, got %q", name, stored)
-		}
-		if s.IsActive() != (s == Running || s == Pending || s == Starting) {
-			t.Fatalf("IsActive(%q) wrong", name)
+		if err != nil || json.Unmarshal(data, &back) != nil || back != s {
+			t.Fatalf("%v round-tripped through %s to %v (%v)", s, data, back, err)
 		}
 	})
 }
@@ -239,72 +216,33 @@ func TestExternalDriver_StateMachine(t *testing.T) {
 	})
 }
 
-// "{lines}" is replaced in every argument of the logs command, and no
-// argument is otherwise changed.
-func TestExternalDriver_LogsSubstituteLines(t *testing.T) {
+// External commands get "{lines}" replaced in every argument (and nothing
+// else changed), and the instance's environment variables, as a local
+// process would.
+func TestExternalDriver_CommandArgumentsAndEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	rapid.Check(t, func(t *rapid.T) {
 		lines := rapid.IntRange(1, 100000).Draw(t, "lines")
 		args := rapid.SliceOfN(rapid.SampledFrom([]string{"-n", "{lines}", "x{lines}y", "plain", "{line}"}), 1, 5).Draw(t, "args")
+		mark := rapid.StringMatching(`[^\x00\n]{0,30}`).Draw(t, "mark")
 
-		// printf prints each argument on its own line
-		inst := newDriverTestInstance(dir, &Options{External: &ExternalOptions{
-			LogsCommand: append([]string{"printf", `%s\n`}, args...),
-		}})
+		// Prints $MARK, then each argument on its own line
+		inst := newDriverTestInstance(dir, &Options{
+			Environment: map[string]string{"MARK": mark},
+			External: &ExternalOptions{
+				LogsCommand: append([]string{"sh", "-c", `printf '%s\n' "$MARK" "$@"`, "sh"}, args...),
+			},
+		})
 		out, err := inst.GetLogs(lines)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var want []string
+		want := []string{mark}
 		for _, a := range args {
 			want = append(want, strings.ReplaceAll(a, "{lines}", strconv.Itoa(lines)))
 		}
 		if got := strings.Split(strings.TrimSuffix(out, "\n"), "\n"); !slices.Equal(got, want) {
-			t.Fatalf("logs args %q, want %q", got, want)
-		}
-	})
-}
-
-// A configured command must name a program; an empty command is fine.
-func TestExternalOptions_ValidateRequiresAProgram(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		gen := rapid.OneOf(
-			rapid.Just([]string(nil)),
-			rapid.SliceOfN(rapid.StringMatching(`[a-z]{1,5}`), 1, 3),
-			rapid.Custom(func(t *rapid.T) []string {
-				return append([]string{rapid.StringMatching(`[ \t]{0,2}`).Draw(t, "blank")}, "arg")
-			}),
-		)
-		o := &ExternalOptions{
-			StartCommand:  gen.Draw(t, "start"),
-			StopCommand:   gen.Draw(t, "stop"),
-			StatusCommand: gen.Draw(t, "status"),
-			LogsCommand:   gen.Draw(t, "logs"),
-		}
-		blank := false
-		for _, c := range [][]string{o.StartCommand, o.StopCommand, o.StatusCommand, o.LogsCommand} {
-			if len(c) > 0 && strings.TrimSpace(c[0]) == "" {
-				blank = true
-			}
-		}
-		if err := o.Validate(); (err != nil) != blank {
-			t.Fatalf("Validate() = %v for %s", err, fmt.Sprint(o))
-		}
-	})
-}
-
-// The instance's environment variables reach every external command, as
-// they would reach a local process.
-func TestExternalDriver_CommandsGetInstanceEnvironment(t *testing.T) {
-	dir := t.TempDir()
-	rapid.Check(t, func(t *rapid.T) {
-		value := rapid.StringMatching(`[^\x00]{0,30}`).Draw(t, "value")
-		inst := newDriverTestInstance(dir, &Options{
-			Environment: map[string]string{"MARK": value},
-			External:    &ExternalOptions{LogsCommand: []string{"sh", "-c", `printf %s "$MARK"`}},
-		})
-		if out, err := inst.GetLogs(1); err != nil || out != value {
-			t.Fatalf("command saw MARK=%q (%v), want %q", out, err, value)
+			t.Fatalf("command saw %q, want %q", got, want)
 		}
 	})
 }

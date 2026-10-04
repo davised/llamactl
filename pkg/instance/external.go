@@ -1,12 +1,10 @@
 package instance
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"llamactl/pkg/command"
 	"log"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -224,37 +222,7 @@ func (e *external) run(argv []string) (string, error) {
 	if opts := e.instance.GetOptions(); opts != nil {
 		env = opts.Environment
 	}
-	return runExternalCommand(argv, env)
-}
-
-// runExternalCommand runs argv with a timeout and extra environment
-// variables, and returns its combined output.
-func runExternalCommand(argv []string, env map[string]string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), externalCommandTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	if len(env) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
-	}
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(out.String())
-		if len(msg) > 500 {
-			msg = msg[len(msg)-500:]
-		}
-		if msg != "" {
-			return out.String(), fmt.Errorf("%s: %w: %s", argv[0], err, msg)
-		}
-		return out.String(), fmt.Errorf("%s: %w", argv[0], err)
-	}
-	return out.String(), nil
+	return command.Run(context.Background(), externalCommandTimeout, argv, env)
 }
 
 // Validate checks that every configured command has a program to run.

@@ -1,0 +1,87 @@
+# 2026/10/04 19:24:57.831423 [TestSlurmDriver_StateMachine] [rapid] draw jobName: ""
+# 2026/10/04 19:24:57.831428 [TestSlurmDriver_StateMachine] [rapid] draw cancelLags: true
+# 2026/10/04 19:24:57.831650 [TestSlurmDriver_StateMachine] [rapid] draw action: "start"
+# 2026/10/04 19:24:57.831680 [TestSlurmDriver_StateMachine] [rapid] draw staleListing: false
+# 2026/10/04 19:24:57.831684 [TestSlurmDriver_StateMachine] [rapid] draw action: "stop"
+# 2026/10/04 19:24:57.831699 [TestSlurmDriver_StateMachine] [rapid] draw action: "schedule"
+# 2026/10/04 19:24:57.831703 [TestSlurmDriver_StateMachine] [rapid] draw job: 0
+# 2026/10/04 19:24:57.831705 [TestSlurmDriver_StateMachine] [rapid] draw action: "submitByHand"
+# 2026/10/04 19:24:57.831706 [TestSlurmDriver_StateMachine] [rapid] draw name: "someone-else"
+# 2026/10/04 19:24:57.831711 [TestSlurmDriver_StateMachine] [rapid] draw state: "RUNNING"
+# 2026/10/04 19:24:57.831712 [TestSlurmDriver_StateMachine] [rapid] draw action: "schedule"
+# 2026/10/04 19:24:57.831713 [TestSlurmDriver_StateMachine] [rapid] draw job: 0
+# 2026/10/04 19:24:57.831719 [TestSlurmDriver_StateMachine] [rapid] draw action: "schedule"
+# 2026/10/04 19:24:57.831720 [TestSlurmDriver_StateMachine] [rapid] draw job: 0
+# 2026/10/04 19:24:57.831722 [TestSlurmDriver_StateMachine] [rapid] draw end: "COMPLETED"
+# 2026/10/04 19:24:57.831723 [TestSlurmDriver_StateMachine] [rapid] draw action: "start"
+# 2026/10/04 19:24:57.831729 [TestSlurmDriver_StateMachine] [rapid] draw staleListing: false
+# 2026/10/04 19:24:57.831730 [TestSlurmDriver_StateMachine] [rapid] draw action: "schedule"
+# 2026/10/04 19:24:57.831745 [TestSlurmDriver_StateMachine] [rapid] draw job: 0
+# 2026/10/04 19:24:57.831746 [TestSlurmDriver_StateMachine] [rapid] draw next: "CONFIGURING"
+# 2026/10/04 19:24:57.831747 [TestSlurmDriver_StateMachine] [rapid] draw nodes: "gpu01"
+# 2026/10/04 19:24:57.831748 [TestSlurmDriver_StateMachine] [rapid] draw action: "schedule"
+# 2026/10/04 19:24:57.831749 [TestSlurmDriver_StateMachine] [rapid] draw job: 0
+# 2026/10/04 19:24:57.831750 [TestSlurmDriver_StateMachine] [rapid] draw action: "poll"
+# 2026/10/04 19:24:57.835359 [TestSlurmDriver_StateMachine] request didn't reach the node: <nil>, 502
+# 
+v0.4.8#7854660698680510295
+0x0
+0x0
+0x1
+0x1084210842108
+0x38e38e38e38e4
+0x2
+0x0
+0x1084210842108
+0x38e38e38e38e4
+0x3
+0x1084210842108
+0x0
+0x1
+0x0
+0x0
+0x0
+0x1084210842108
+0x6b74f03291620
+0x4
+0x4f4ef7a7b63cb
+0x1
+0x1d611da28e5e99
+0x1
+0x734eb68f10338
+0x17c360e0b448
+0x1
+0x15af7db6fee61b
+0x22dab7c407ad7
+0x0
+0x16c846e486f2fa
+0x18b661178123ab
+0x1
+0x6
+0x0
+0x0
+0x3
+0x0
+0x1b867d3023e9ba
+0x131ab3b4636ebf
+0x2
+0x0
+0x32af57740f40c
+0x0
+0x1
+0x14b7b8a8c0123b
+0x0
+0x0
+0x1
+0x0
+0x1
+0x0
+0xd53c46c6dab55
+0x3
+0x1
+0xc75ceac33eb8
+0x0
+0x0
+0xde845e7cd942e
+0x0
+0x0

@@ -1,0 +1,14 @@
+# 2026/10/04 19:24:01.410231 [TestSlurmDriver_StateMachine] [rapid] draw jobName: ""
+# 2026/10/04 19:24:01.410239 [TestSlurmDriver_StateMachine] [rapid] draw cancelLags: false
+# 2026/10/04 19:24:01.410383 [TestSlurmDriver_StateMachine] [rapid] draw action: "start"
+# 2026/10/04 19:24:01.410414 [TestSlurmDriver_StateMachine] [rapid] draw staleListing: true
+# 2026/10/04 19:24:01.410422 [TestSlurmDriver_StateMachine] stale listing ended the new job: tracked <nil>
+# 
+v0.4.8#7914328778004740869
+0x0
+0x0
+0x0
+0x1084210842108
+0x38e38e38e38e4
+0x2
+0x1
