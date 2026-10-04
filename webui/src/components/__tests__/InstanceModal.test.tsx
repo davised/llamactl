@@ -213,7 +213,7 @@ describe('InstanceModal - Form Logic and Validation', () => {
       await user.type(screen.getByLabelText(/Job Command/), '/opt/vllm/bin/slurm-launch.sh qwen')
       await user.type(screen.getByLabelText(/^Port/), '8019')
       await user.type(screen.getByLabelText('Job Name'), 'vllm-qwen')
-      await user.type(screen.getByLabelText('Partition'), 'lpi')
+      await user.type(screen.getByLabelText('Partition'), 'gpu')
       await user.type(screen.getByLabelText('GPUs'), '2')
       await user.type(screen.getByLabelText('Extra sbatch Arguments'), '--qos=long')
 
@@ -225,7 +225,7 @@ describe('InstanceModal - Form Logic and Validation', () => {
         slurm: {
           command: '/opt/vllm/bin/slurm-launch.sh qwen',
           job_name: 'vllm-qwen',
-          partition: 'lpi',
+          partition: 'gpu',
           gpus: 2,
           extra_args: ['--qos=long'],
         },
@@ -249,21 +249,21 @@ describe('InstanceModal - Form Logic and Validation', () => {
       await user.click(screen.getByLabelText(/External Service/))
 
       await user.type(screen.getByLabelText('Unit'), 'vllm@glm')
-      await user.type(screen.getByLabelText('SSH Host'), 'remi')
+      await user.type(screen.getByLabelText('SSH Host'), 'gpu02')
       await user.click(screen.getByRole('button', { name: 'Fill commands' }))
 
       // The command inputs show the filled values
-      expect(screen.getByLabelText('Start Command')).toHaveValue('ssh -o BatchMode=yes remi systemctl --user start --no-block vllm@glm')
+      expect(screen.getByLabelText('Start Command')).toHaveValue('ssh -o BatchMode=yes gpu02 systemctl --user start --no-block vllm@glm')
 
-      await user.type(screen.getByLabelText('Host'), 'remi')
+      await user.type(screen.getByLabelText('Host'), 'gpu02')
       await user.type(screen.getByLabelText('Port'), '8010')
       await user.click(screen.getByRole('tab', { name: /Advanced/i }))
       await user.click(screen.getByTestId('dialog-save-button'))
 
       expect(mockOnSave).toHaveBeenCalledWith('glm', expect.objectContaining({
         external: expect.objectContaining({
-          start_command: ['ssh', '-o', 'BatchMode=yes', 'remi', 'systemctl', '--user', 'start', '--no-block', 'vllm@glm'],
-          stop_command: ['ssh', '-o', 'BatchMode=yes', 'remi', 'systemctl', '--user', 'stop', 'vllm@glm'],
+          start_command: ['ssh', '-o', 'BatchMode=yes', 'gpu02', 'systemctl', '--user', 'start', '--no-block', 'vllm@glm'],
+          stop_command: ['ssh', '-o', 'BatchMode=yes', 'gpu02', 'systemctl', '--user', 'stop', 'vllm@glm'],
         }),
       }))
     })

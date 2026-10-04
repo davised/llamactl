@@ -82,15 +82,15 @@ func newProxy(instance *Instance) (*proxy, error) {
 
 		p.apiKey = node.APIKey
 	} else {
-		if p.instance.options.GetPort() == 0 {
+		// Get host/port from process
+		host := p.instance.options.GetHost()
+		port := p.instance.options.GetPort()
+		if port == 0 {
 			return nil, fmt.Errorf("instance %s has no port assigned", p.instance.Name)
 		}
-		// A Slurm job's host isn't known until the job starts, so its
-		// target is resolved in build()
-		if !p.instance.IsSlurm() {
-			if p.targetURL, err = p.localTarget(); err != nil {
-				return nil, err
-			}
+		p.targetURL, err = url.Parse(fmt.Sprintf("http://%s:%d", host, port))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse target URL for instance %s: %w", p.instance.Name, err)
 		}
 
 		// Get response headers from backend config
@@ -113,33 +113,10 @@ func (p *proxy) get() (*httputil.ReverseProxy, error) {
 	return p.proxy, p.proxyErr
 }
 
-// localTarget returns the backend URL of a non-remote instance. For a Slurm
-// instance the host is the node its job landed on, so build() looks it up
-// each time the proxy is rebuilt (the job clears the proxy when it moves).
-func (p *proxy) localTarget() (*url.URL, error) {
-	host := p.instance.GetHost()
-	port := p.instance.GetPort()
-	if p.instance.IsSlurm() && host == "" {
-		return nil, fmt.Errorf("instance %s has no running Slurm job", p.instance.Name)
-	}
-	target, err := url.Parse(fmt.Sprintf("http://%s:%d", host, port))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse target URL for instance %s: %w", p.instance.Name, err)
-	}
-	return target, nil
-}
-
 // build creates the reverse proxy based on instance options
 func (p *proxy) build() (*httputil.ReverseProxy, error) {
-	target := p.targetURL
-	if p.instance.IsSlurm() {
-		var err error
-		if target, err = p.localTarget(); err != nil {
-			return nil, err
-		}
-	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy := httputil.NewSingleHostReverseProxy(p.targetURL)
 
 	// Modify the request before sending it to the backend
 	originalDirector := proxy.Director

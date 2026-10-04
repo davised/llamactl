@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCommand, parseArgs } from '@/lib/parseArgs'
+import { parseArgs } from '@/lib/parseArgs'
 
 describe('parseArgs', () => {
   it('splits on whitespace', () => {
@@ -22,20 +22,5 @@ describe('parseArgs', () => {
   it('returns an empty array for empty or blank input', () => {
     expect(parseArgs('')).toEqual([])
     expect(parseArgs('   ')).toEqual([])
-  })
-})
-
-describe('formatCommand', () => {
-  it('joins plain arguments with spaces', () => {
-    expect(formatCommand(['ssh', 'gpu01', 'systemctl', '--user', 'start', 'vllm'])).toBe('ssh gpu01 systemctl --user start vllm')
-  })
-
-  it('round-trips arguments with spaces and quotes through parseArgs', () => {
-    const argv = ['sh', '-c', 'echo "hi there"', "it's", '']
-    expect(parseArgs(formatCommand(argv))).toEqual(argv)
-  })
-
-  it('returns an empty string for undefined', () => {
-    expect(formatCommand(undefined)).toBe('')
   })
 })

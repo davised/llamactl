@@ -1,0 +1,39 @@
+# 2026/10/04 18:16:33.858449 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw command: "\x01"
+# 2026/10/04 18:16:33.858481 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw jobName: ""
+# 2026/10/04 18:16:33.858502 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw partition: ""
+# 2026/10/04 18:16:33.858520 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw nodelist: ""
+# 2026/10/04 18:16:33.858557 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw account: ""
+# 2026/10/04 18:16:33.858581 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw gpus: 0
+# 2026/10/04 18:16:33.858594 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw cpus: 0
+# 2026/10/04 18:16:33.858610 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw memory: ""
+# 2026/10/04 18:16:33.858658 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw time: "0"
+# 2026/10/04 18:16:33.858693 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw output: ""
+# 2026/10/04 18:16:33.858717 [TestSlurmDriver_SbatchArgsMirrorOptions] [rapid] draw extra: []string{}
+# 2026/10/04 18:16:33.859118 [TestSlurmDriver_SbatchArgsMirrorOptions] --time=: got ["0"], want "" (args ["--job-name=llamactl-qwen" "--output=/dev/null" "--time=0" "--wrap=\x01"])
+# 
+v0.4.8#13751539405934117945
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x15555555555555
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x0
+0x0

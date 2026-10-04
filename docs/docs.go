@@ -2374,7 +2374,12 @@ const docTemplate = `{
                     "$ref": "#/definitions/config.ServerConfig"
                 },
                 "slurm": {
-                    "$ref": "#/definitions/config.SlurmConfig"
+                    "description": "see slurm.go",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.SlurmConfig"
+                        }
+                    ]
                 },
                 "version": {
                     "type": "string"
@@ -2785,7 +2790,7 @@ const docTemplate = `{
                     }
                 },
                 "external": {
-                    "description": "External service: the backend runs outside llamactl and is managed\nthrough these commands instead of a local process",
+                    "description": "Run the server elsewhere instead of as a local process (see driver.go)",
                     "allOf": [
                         {
                             "$ref": "#/definitions/instance.ExternalOptions"
@@ -2816,12 +2821,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "slurm": {
-                    "description": "Slurm job: the backend runs as a batch job on a compute node",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/instance.SlurmOptions"
-                        }
-                    ]
+                    "$ref": "#/definitions/instance.SlurmOptions"
                 }
             }
         },

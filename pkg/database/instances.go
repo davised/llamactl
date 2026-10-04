@@ -242,7 +242,16 @@ func (db *sqliteDB) instanceToRow(inst *instance.Instance) (*instanceRow, error)
 		return nil, fmt.Errorf("failed to marshal options: %w", err)
 	}
 
-	statusStr := inst.GetStatus().PersistedName()
+	// Convert status to string
+	statusJSON, err := inst.GetStatus().MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal status: %w", err)
+	}
+	var statusStr string
+	if err := json.Unmarshal(statusJSON, &statusStr); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal status string: %w", err)
+	}
+	statusStr = instance.PersistedStatusName(statusStr)
 
 	return &instanceRow{
 		Name:        inst.Name,

@@ -1,5 +1,6 @@
 import { BackendType } from '@/types/instance'
 import { z } from 'zod'
+import { ExternalOptionsSchema, SlurmOptionsSchema } from './runElsewhere'
 
 // Import backend schemas from separate files
 import {
@@ -47,32 +48,8 @@ export const CreateInstanceOptionsSchema = z.object({
   // Execution context overrides
   docker_enabled: z.boolean().optional(),
   command_override: z.string().optional(),
-
-  // External service: the backend runs outside llamactl (e.g. a systemd
-  // unit on another host) and is managed through these commands
-  external: z.object({
-    start_command: z.array(z.string()).optional(),
-    stop_command: z.array(z.string()).optional(),
-    status_command: z.array(z.string()).optional(),
-    logs_command: z.array(z.string()).optional(),
-  }).optional(),
-
-  // Slurm job: the backend runs as a batch job on a compute node
-  slurm: z.object({
-    command: z.string(),
-    job_name: z.string().optional(),
-    partition: z.string().optional(),
-    nodelist: z.string().optional(),
-    account: z.string().optional(),
-    gpus: z.number().optional(),
-    cpus: z.number().optional(),
-    memory: z.string().optional(),
-    time_limit: z.string().optional(),
-    output: z.string().optional(),
-    extra_args: z.array(z.string()).optional(),
-    log_path: z.string().optional(),
-    logs_command: z.array(z.string()).optional(),
-  }).optional(),
+  external: ExternalOptionsSchema.optional(),
+  slurm: SlurmOptionsSchema.optional(),
 
   // Backend configuration
   backend_type: z.enum([BackendType.LLAMA_CPP, BackendType.MLX_LM, BackendType.VLLM, BackendType.CUSTOM]).optional(),

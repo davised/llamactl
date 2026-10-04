@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,9 +76,20 @@ func (o *SlurmOptions) Validate() error {
 	return nil
 }
 
+// slurmClient is the part of *slurm.Client the job uses (an interface so
+// tests can stand in for the scheduler).
+type slurmClient interface {
+	Submit(ctx context.Context, args []string, env map[string]string) (string, error)
+	Cancel(ctx context.Context, jobID string) error
+	Accounting(ctx context.Context, jobID string) (*slurm.Job, error)
+	Run(ctx context.Context, argv []string) (string, error)
+}
+
 // slurmJob runs an instance as a Slurm batch job.
 type slurmJob struct {
 	instance *Instance
+	cfg      config.SlurmConfig
+	client   slurmClient
 
 	mu sync.Mutex
 	// job is the tracked job while it is queued or running
@@ -96,8 +106,13 @@ type slurmJob struct {
 	ignored map[string]struct{}
 }
 
-func newSlurmJob(instance *Instance) *slurmJob {
-	return &slurmJob{instance: instance, ignored: map[string]struct{}{}}
+func newSlurmJob(instance *Instance, cfg config.SlurmConfig) *slurmJob {
+	return &slurmJob{
+		instance: instance,
+		cfg:      cfg,
+		client:   &slurm.Client{Prefix: cfg.CommandPrefix},
+		ignored:  map[string]struct{}{},
+	}
 }
 
 func (s *slurmJob) opts() *SlurmOptions {
@@ -106,17 +121,6 @@ func (s *slurmJob) opts() *SlurmOptions {
 		return &SlurmOptions{}
 	}
 	return opts.Slurm
-}
-
-func (s *slurmJob) config() config.SlurmConfig {
-	if s.instance.globalSlurmConfig == nil {
-		return config.SlurmConfig{}
-	}
-	return *s.instance.globalSlurmConfig
-}
-
-func (s *slurmJob) client() *slurm.Client {
-	return &slurm.Client{Prefix: s.config().CommandPrefix}
 }
 
 func (s *slurmJob) jobName() string {
@@ -172,7 +176,7 @@ func (s *slurmJob) hostLocked() string {
 	if s.node == "" {
 		return ""
 	}
-	tmpl := s.config().NodeHostTemplate
+	tmpl := s.cfg.NodeHostTemplate
 	if tmpl == "" {
 		tmpl = "{node}"
 	}
@@ -211,7 +215,7 @@ func (s *slurmJob) start() error {
 		env = opts.Environment
 	}
 
-	id, err := s.client().Submit(context.Background(), s.sbatchArgs(), env)
+	id, err := s.client.Submit(context.Background(), s.sbatchArgs(), env)
 	if err != nil {
 		return fmt.Errorf("failed to submit job for instance %s: %w", s.instance.Name, err)
 	}
@@ -247,7 +251,7 @@ func (s *slurmJob) stop() error {
 		return nil
 	}
 
-	if err := s.client().Cancel(context.Background(), s.job.ID); err != nil {
+	if err := s.client.Cancel(context.Background(), s.job.ID); err != nil {
 		// The job may still be alive; the next poll restores its status
 		return fmt.Errorf("failed to cancel job %s for instance %s: %w", s.job.ID, s.instance.Name, err)
 	}
@@ -388,7 +392,7 @@ func (s *slurmJob) update(ctx context.Context, jobs []slurm.Job, queriedAt time.
 // finishLocked records how the tracked job ended. Caller must hold s.mu.
 func (s *slurmJob) finishLocked(ctx context.Context) {
 	ended := *s.job
-	if acct, err := s.client().Accounting(ctx, ended.ID); err == nil {
+	if acct, err := s.client.Accounting(ctx, ended.ID); err == nil {
 		ended = *acct
 	} else {
 		log.Printf("Instance %s: job %s left the queue; sacct failed: %v", s.instance.Name, ended.ID, err)
@@ -445,32 +449,14 @@ func (s *slurmJob) setNodeLocked(node string) {
 	}
 	s.node = node
 	if s.instance.proxy != nil {
-		s.instance.proxy.clear()
+		s.instance.proxy.retarget(s.hostLocked(), s.instance.GetPort())
 	}
 }
 
 // checkHealthLocked makes one health request to the job's server. Caller
-// must hold s.mu.
+// must hold s.mu (so it can't go through GetHost, which takes it).
 func (s *slurmJob) checkHealthLocked(ctx context.Context) bool {
-	host := s.hostLocked()
-	port := s.instance.GetPort()
-	if host == "" || port == 0 {
-		return false
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	url := fmt.Sprintf("http://%s:%d%s", host, port, s.instance.GetHealthPath())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	return checkHealthAt(ctx, s.hostLocked(), s.instance.GetPort(), s.instance.GetHealthPath(), 3*time.Second)
 }
 
 // getLogs runs the logs command for the running job. Logs live on the
@@ -511,5 +497,5 @@ func (s *slurmJob) getLogs(numLines int) (string, error) {
 		).Replace(arg)
 	}
 
-	return s.client().Run(context.Background(), args)
+	return s.client.Run(context.Background(), args)
 }

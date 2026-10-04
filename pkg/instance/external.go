@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -71,7 +72,7 @@ func (e *external) start() error {
 	}
 
 	if cmd := e.opts().StartCommand; len(cmd) > 0 {
-		if _, err := runExternalCommand(cmd); err != nil {
+		if _, err := e.run(cmd); err != nil {
 			return fmt.Errorf("failed to start instance %s: %w", e.instance.Name, err)
 		}
 	}
@@ -104,7 +105,7 @@ func (e *external) stop() error {
 	}
 
 	if cmd := e.opts().StopCommand; len(cmd) > 0 {
-		if _, err := runExternalCommand(cmd); err != nil {
+		if _, err := e.run(cmd); err != nil {
 			// The service may still be up; keep reporting it as running.
 			e.instance.SetStatus(Running)
 			e.startMonitorLocked()
@@ -141,7 +142,7 @@ func (e *external) syncStatus() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if _, err := runExternalCommand(cmd); err != nil {
+	if _, err := e.run(cmd); err != nil {
 		e.stopMonitorLocked()
 		e.instance.SetStatus(Stopped)
 	} else {
@@ -166,7 +167,7 @@ func (e *external) getLogs(numLines int) (string, error) {
 		args[i] = strings.ReplaceAll(arg, "{lines}", lines)
 	}
 
-	return runExternalCommand(args)
+	return e.run(args)
 }
 
 // startMonitorLocked polls the status command while the instance is running
@@ -192,7 +193,7 @@ func (e *external) startMonitorLocked() {
 			case <-ticker.C:
 			}
 
-			_, err := runExternalCommand(cmd)
+			_, err := e.run(cmd)
 
 			e.mu.Lock()
 			// Ignore results from a monitor that was cancelled while the
@@ -216,12 +217,29 @@ func (e *external) stopMonitorLocked() {
 	}
 }
 
-// runExternalCommand runs argv with a timeout and returns its combined output.
-func runExternalCommand(argv []string) (string, error) {
+// run runs one of the configured commands with the instance's environment
+// variables added.
+func (e *external) run(argv []string) (string, error) {
+	var env map[string]string
+	if opts := e.instance.GetOptions(); opts != nil {
+		env = opts.Environment
+	}
+	return runExternalCommand(argv, env)
+}
+
+// runExternalCommand runs argv with a timeout and extra environment
+// variables, and returns its combined output.
+func runExternalCommand(argv []string, env map[string]string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), externalCommandTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if len(env) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

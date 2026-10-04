@@ -2,7 +2,8 @@ import type React from 'react'
 import { useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatCommand, parseArgs } from '@/lib/parseArgs'
+import { parseArgs } from '@/lib/parseArgs'
+import { formatCommand } from '@/lib/formatCommand'
 
 interface CommandInputProps {
   id: string

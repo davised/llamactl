@@ -40,7 +40,7 @@ type AppConfig struct {
 	Auth      AuthConfig            `yaml:"auth" json:"auth"`
 	LocalNode string                `yaml:"local_node,omitempty" json:"local_node,omitempty"`
 	Nodes     map[string]NodeConfig `yaml:"nodes,omitempty" json:"nodes,omitempty"`
-	Slurm     SlurmConfig           `yaml:"slurm,omitempty" json:"slurm"`
+	Slurm     SlurmConfig           `yaml:"slurm,omitempty" json:"slurm"` // see slurm.go
 
 	// Directory where all llamactl data will be stored (database, instances, logs, etc.)
 	DataDir string `yaml:"data_dir" json:"data_dir"`
@@ -194,21 +194,6 @@ type OIDCConfig struct {
 // Enabled reports whether OIDC login is configured
 func (c OIDCConfig) Enabled() bool {
 	return c.IssuerURL != "" && c.ClientID != ""
-}
-
-// SlurmConfig contains settings for instances that run as Slurm jobs
-type SlurmConfig struct {
-	// How often squeue is polled to update Slurm instances (default 15s)
-	PollInterval time.Duration `yaml:"poll_interval,omitempty" json:"poll_interval,omitempty" swaggertype:"string" example:"15s"`
-
-	// Prepended to every Slurm command, e.g. ["ssh", "-o", "BatchMode=yes", "submit01"]
-	// when llamactl doesn't run on a host that can submit jobs
-	CommandPrefix []string `yaml:"command_prefix,omitempty" json:"command_prefix,omitempty"`
-
-	// Turns a compute node name from squeue into the host llamactl connects
-	// to; "{node}" is replaced with the node name (default "{node}"), e.g.
-	// "{node}.cluster.example.edu"
-	NodeHostTemplate string `yaml:"node_host_template,omitempty" json:"node_host_template,omitempty"`
 }
 
 type NodeConfig struct {

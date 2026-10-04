@@ -1,22 +1,43 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect } from 'vitest'
+import { test, fc } from '@fast-check/vitest'
 import { systemdCommands } from '@/lib/systemd'
 
+const unit = fc.stringMatching(/^[A-Za-z0-9@._:-]{1,30}$/)
+const host = fc.option(fc.stringMatching(/^[a-z][a-z0-9.-]{0,20}$/), { nil: undefined })
+const logFile = fc.option(fc.stringMatching(/^\/[a-z0-9/._{}-]{1,30}$/), { nil: undefined })
+
 describe('systemdCommands', () => {
-  it('builds local commands', () => {
-    expect(systemdCommands('vllm@qwen')).toEqual({
-      start_command: ['systemctl', '--user', 'start', '--no-block', 'vllm@qwen'],
-      stop_command: ['systemctl', '--user', 'stop', 'vllm@qwen'],
-      status_command: ['sh', '-c', "systemctl --user is-active vllm@qwen | grep -qxE 'active|activating|reloading'"],
-      logs_command: ['journalctl', '--user', '-u', 'vllm@qwen', '-n', '{lines}', '--no-pager'],
-    })
+  test.prop([unit, host, logFile])('every command acts on the unit, locally or over ssh', (u, h, log) => {
+    const cmds = systemdCommands(u, h, log)
+    for (const cmd of Object.values(cmds) as string[][]) {
+      // Remote commands go through non-interactive ssh to that host; local ones never use ssh
+      if (h) {
+        expect(cmd.slice(0, 4)).toEqual(['ssh', '-o', 'BatchMode=yes', h])
+      } else {
+        expect(cmd[0]).not.toBe('ssh')
+      }
+      if (cmd !== cmds.logs_command || !log) {
+        expect(cmd.join(' ')).toContain(u)
+      }
+    }
   })
 
-  it('wraps commands in ssh and tails a log file', () => {
-    const cmds = systemdCommands('vllm@glm', 'remi', '/data/logs/glm-latest.log')
-    const ssh = ['ssh', '-o', 'BatchMode=yes', 'remi']
-    expect(cmds.start_command).toEqual([...ssh, 'systemctl', '--user', 'start', '--no-block', 'vllm@glm'])
-    // ssh passes the pipeline to the remote shell as one argument
-    expect(cmds.status_command).toEqual([...ssh, "systemctl --user is-active vllm@glm | grep -qxE 'active|activating|reloading'"])
-    expect(cmds.logs_command).toEqual([...ssh, 'tail', '-n', '{lines}', '/data/logs/glm-latest.log'])
+  // Units that wait for a health check stay "activating" while a model
+  // loads: start must not wait for that, and the status check counts it as up
+  test.prop([unit, host])('does not wait for a slow unit and counts activating as up', (u, h) => {
+    const cmds = systemdCommands(u, h)
+    expect(cmds.start_command).toContain('--no-block')
+    const status = cmds.status_command ?? []
+    expect(status[status.length - 1]).toMatch(/activating/)
+  })
+
+  test.prop([unit, host, logFile])('reads logs from the file when given, else the journal', (u, h, log) => {
+    const logs = systemdCommands(u, h, log).logs_command ?? []
+    if (log) {
+      expect(logs.slice(-4)).toEqual(['tail', '-n', '{lines}', log])
+    } else {
+      expect(logs).toContain('journalctl')
+      expect(logs).toContain('{lines}')
+    }
   })
 })

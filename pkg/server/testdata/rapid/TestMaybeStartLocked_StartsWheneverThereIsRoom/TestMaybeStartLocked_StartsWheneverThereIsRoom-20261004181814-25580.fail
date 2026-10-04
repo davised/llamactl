@@ -1,0 +1,10 @@
+# 2026/10/04 18:18:14.686873 [TestMaybeStartLocked_StartsWheneverThereIsRoom] [rapid] draw lru: false
+# 2026/10/04 18:18:14.686877 [TestMaybeStartLocked_StartsWheneverThereIsRoom] [rapid] draw canEvict: false
+# 2026/10/04 18:18:14.686880 [TestMaybeStartLocked_StartsWheneverThereIsRoom] [rapid] draw maxRunning: -1
+# 2026/10/04 18:18:14.689703 [TestMaybeStartLocked_StartsWheneverThereIsRoom] lru=false canEvict=false maxRunning=-1: not started
+# 
+v0.4.8#12889209230543689455
+0x0
+0x0
+0x0
+0x0

@@ -30,11 +30,9 @@ type Options struct {
 	// Execution context overrides
 	DockerEnabled   *bool  `json:"docker_enabled,omitempty"`
 	CommandOverride string `json:"command_override,omitempty"`
-	// External service: the backend runs outside llamactl and is managed
-	// through these commands instead of a local process
+	// Run the server elsewhere instead of as a local process (see driver.go)
 	External *ExternalOptions `json:"external,omitempty"`
-	// Slurm job: the backend runs as a batch job on a compute node
-	Slurm *SlurmOptions `json:"slurm,omitempty"`
+	Slurm    *SlurmOptions    `json:"slurm,omitempty"`
 
 	// Instance group for hierarchical eviction
 	Group string `json:"group,omitempty"`
@@ -208,12 +206,6 @@ func (c *Options) MarshalJSON() ([]byte, error) {
 	return json.Marshal(aux)
 }
 
-// RunsElsewhere reports whether the backend server runs outside llamactl
-// (an external service or a Slurm job) rather than as a local process
-func (c *Options) RunsElsewhere() bool {
-	return c.External != nil || c.Slurm != nil
-}
-
 // validateAndApplyDefaults validates the instance options and applies constraints
 func (c *Options) validateAndApplyDefaults(name string, globalSettings *config.InstancesConfig) {
 	// Validate and apply constraints
@@ -251,6 +243,8 @@ func (c *Options) validateAndApplyDefaults(name string, globalSettings *config.I
 		c.Group = ""
 	}
 
+	c.applyDriverDefaults()
+
 	// Apply defaults from global settings for nil fields
 	if globalSettings != nil {
 		if c.AutoRestart == nil {
@@ -263,23 +257,10 @@ func (c *Options) validateAndApplyDefaults(name string, globalSettings *config.I
 			c.RestartDelay = &globalSettings.DefaultRestartDelay
 		}
 		if c.OnDemandStart == nil {
-			if c.Slurm != nil {
-				// A queued job can wait for hours; opt in explicitly
-				off := false
-				c.OnDemandStart = &off
-			} else {
-				c.OnDemandStart = &globalSettings.DefaultOnDemandStart
-			}
+			c.OnDemandStart = &globalSettings.DefaultOnDemandStart
 		}
 		if c.IdleTimeout == nil {
-			if c.Slurm != nil {
-				// Cancelling a job that may have queued for hours shouldn't
-				// happen by default; opt in explicitly
-				off := 0
-				c.IdleTimeout = &off
-			} else {
-				c.IdleTimeout = &globalSettings.DefaultIdleTimeout
-			}
+			c.IdleTimeout = &globalSettings.DefaultIdleTimeout
 		}
 	}
 }

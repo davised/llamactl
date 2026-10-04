@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"pgregory.net/rapid"
 )
 
 // fakeSlurm is a stand-in for the Slurm tools, injected through the
@@ -141,6 +143,9 @@ func backendPort(t *testing.T, srv *httptest.Server) int {
 	return port
 }
 
+// End to end through the real command wiring (sbatch/squeue/scancel/srun
+// via the command prefix), proxying and logs. The behavior across all
+// sequences of events is covered by the property tests in pkg/instance.
 func TestSlurm_Lifecycle(t *testing.T) {
 	fake := newFakeSlurm(t)
 	im, backend := newSlurmTestManager(t, fake)
@@ -249,129 +254,54 @@ func TestSlurm_Lifecycle(t *testing.T) {
 	}
 }
 
-func TestSlurm_AdoptsJobByName(t *testing.T) {
+// A Slurm job outlives llamactl: after a restart the instance follows the
+// same job again, in the state the scheduler reports.
+func TestSlurm_JobsSurviveRestart(t *testing.T) {
 	fake := newFakeSlurm(t)
-	im, backend := newSlurmTestManager(t, fake)
+	_, backend := newSlurmTestManager(t, fake)
+	port := backendPort(t, backend)
 
-	inst, err := im.CreateInstance("qwen", slurmOptions(backendPort(t, backend), &instance.SlurmOptions{
-		Command: "run",
-		JobName: "vllm-qwen",
-	}))
-	if err != nil {
-		t.Fatalf("CreateInstance: %v", err)
-	}
+	rapid.Check(t, func(rt *rapid.T) {
+		state := rapid.SampledFrom([]string{"PENDING", "RUNNING"}).Draw(rt, "state")
+		jobName := rapid.SampledFrom([]string{"", "vllm-qwen"}).Draw(rt, "jobName")
+		dbPath := filepath.Join(t.TempDir(), "llamactl.db")
 
-	// A job submitted by hand, plus unrelated jobs
-	fake.queue("200 vllm-other RUNNING gpu01", "201 vllm-qwen PENDING", "202 vllm-qwen RUNNING gpu02")
-	im.slurm.poll()
-
-	if j := inst.SlurmJob(); j == nil || j.ID != "202" {
-		t.Fatalf("expected the running job 202 to be adopted, got %+v", j)
-	}
-	if inst.GetStatus() != instance.Running {
-		t.Errorf("expected running, got %v", inst.GetStatus())
-	}
-}
-
-func TestSlurm_JobEndsOnItsOwn(t *testing.T) {
-	fake := newFakeSlurm(t)
-	im, backend := newSlurmTestManager(t, fake)
-
-	inst, err := im.CreateInstance("qwen", slurmOptions(backendPort(t, backend), &instance.SlurmOptions{Command: "run"}))
-	if err != nil {
-		t.Fatalf("CreateInstance: %v", err)
-	}
-	fake.queue("300 llamactl-qwen RUNNING gpu01")
-	im.slurm.poll()
-	if inst.GetStatus() != instance.Running {
-		t.Fatalf("expected running, got %v", inst.GetStatus())
-	}
-
-	// The job hits its time limit and leaves the queue
-	fake.queue()
-	fake.write("sacct.json", `{"jobs":[{"job_id":300,"name":"llamactl-qwen","state":{"current":["TIMEOUT"],"reason":"None"}}]}`)
-	im.slurm.poll()
-	if inst.GetStatus() != instance.Failed {
-		t.Errorf("expected failed after TIMEOUT, got %v", inst.GetStatus())
-	}
-	if j := inst.SlurmJob(); j == nil || j.State != "TIMEOUT" {
-		t.Errorf("expected last job to report TIMEOUT, got %+v", j)
-	}
-
-	// Without accounting, a vanished job is just stopped
-	fake.queue("301 llamactl-qwen RUNNING gpu01")
-	im.slurm.poll()
-	fake.queue()
-	os.Remove(filepath.Join(fake.dir, "sacct.json"))
-	im.slurm.poll()
-	if inst.GetStatus() != instance.Stopped {
-		t.Errorf("expected stopped when sacct is unavailable, got %v", inst.GetStatus())
-	}
-}
-
-func TestSlurm_StartingUntilHealthy(t *testing.T) {
-	fake := newFakeSlurm(t)
-	im, backend := newSlurmTestManager(t, fake)
-
-	// Nothing listens on this port, so the health check fails
-	closed := httptest.NewServer(http.NotFoundHandler())
-	port := backendPort(t, closed)
-	closed.Close()
-	_ = backend
-
-	inst, err := im.CreateInstance("qwen", slurmOptions(port, &instance.SlurmOptions{Command: "run"}))
-	if err != nil {
-		t.Fatalf("CreateInstance: %v", err)
-	}
-	fake.queue("400 llamactl-qwen RUNNING gpu01")
-	im.slurm.poll()
-	if inst.GetStatus() != instance.Starting {
-		t.Errorf("expected starting while the server is down, got %v", inst.GetStatus())
-	}
-	if err := inst.WaitForHealthy(1); err == nil {
-		t.Error("expected WaitForHealthy to time out")
-	}
-}
-
-func TestSlurm_Validation(t *testing.T) {
-	fake := newFakeSlurm(t)
-	im, _ := newSlurmTestManager(t, fake)
-
-	tests := []struct {
-		name string
-		opts *instance.Options
-	}{
-		{"missing command", slurmOptions(8000, &instance.SlurmOptions{})},
-		{"missing port", slurmOptions(0, &instance.SlurmOptions{Command: "run"})},
-		{"job name with spaces", slurmOptions(8000, &instance.SlurmOptions{Command: "run", JobName: "a b"})},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, err := im.CreateInstance("s", tt.opts); err == nil {
-				t.Error("expected validation error")
+		open := func() *instanceManager {
+			db, err := database.Open(&database.Config{Path: dbPath, MaxOpenConnections: 1})
+			if err != nil {
+				rt.Fatal(err)
 			}
-		})
-	}
+			if err := database.RunMigrations(db); err != nil {
+				rt.Fatal(err)
+			}
+			cfg := &config.AppConfig{
+				Instances: config.InstancesConfig{PortRange: [2]int{8000, 9000}, MaxInstances: -1, LogsDir: t.TempDir(), InstancesDir: t.TempDir(), TimeoutCheckInterval: 5},
+				Slurm:     config.SlurmConfig{PollInterval: time.Hour, CommandPrefix: fake.prefix(), NodeHostTemplate: "127.0.0.1"},
+			}
+			return New(cfg, db).(*instanceManager)
+		}
 
-	both := slurmOptions(8000, &instance.SlurmOptions{Command: "run"})
-	both.External = &instance.ExternalOptions{}
-	if _, err := im.CreateInstance("s", both); err == nil {
-		t.Error("expected error for an instance that is both external and Slurm")
-	}
+		fake.queue()
+		im := open()
+		inst, err := im.CreateInstance("qwen", slurmOptions(port, &instance.SlurmOptions{Command: "run", JobName: jobName}))
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if _, err := im.StartInstance("qwen"); err != nil {
+			rt.Fatal(err)
+		}
+		name := inst.SlurmJob().Name
+		im.Shutdown()
 
-	// Slurm instances don't need a host and don't reserve local ports
-	if _, err := im.CreateInstance("s1", slurmOptions(8000, &instance.SlurmOptions{Command: "run"})); err != nil {
-		t.Fatalf("CreateInstance s1: %v", err)
-	}
-	if _, err := im.CreateInstance("s2", slurmOptions(8000, &instance.SlurmOptions{Command: "run"})); err != nil {
-		t.Fatalf("two Slurm instances may share a port: %v", err)
-	}
+		fake.queue("101 " + name + " " + state + " gpu01")
+		im = open()
+		defer im.Shutdown()
+		im.slurm.poll()
 
-	// The executor can't change after creation
-	if _, err := im.UpdateInstance("s1", slurmOptions(8000, nil)); err == nil {
-		t.Error("expected error switching a Slurm instance to local")
-	}
-	if _, err := im.UpdateInstance("s1", slurmOptions(8001, &instance.SlurmOptions{Command: "run2"})); err != nil {
-		t.Errorf("expected Slurm update to succeed: %v", err)
-	}
+		inst, _ = im.GetInstance("qwen")
+		want := map[string]instance.Status{"PENDING": instance.Pending, "RUNNING": instance.Running}[state]
+		if j := inst.SlurmJob(); j == nil || j.ID != "101" || inst.GetStatus() != want {
+			rt.Fatalf("after restart: job %+v, status %v; want job 101 %v", j, inst.GetStatus(), want)
+		}
+	})
 }

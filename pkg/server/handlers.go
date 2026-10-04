@@ -157,36 +157,34 @@ func (h *Handler) maybeStartLocked(inst *instance.Instance, canEvict bool) error
 		return fmt.Errorf("instance is not running and on-demand start is not enabled")
 	}
 
-	// A concurrent request already started it while we waited for the lock
-	// (or its Slurm job is already queued) — nothing to do; the caller waits
-	// for health below.
-	if inst.IsActive() {
+	// A concurrent request already started it while we waited for the lock —
+	// nothing to do; the caller waits for health below.
+	if inst.IsActive() { // includes a Slurm job that is already queued
 		return nil
 	}
 
-	// External instances run on other hosts and don't use local capacity,
-	// so only their group quota applies.
-	checkGlobal := !inst.IsExternal()
+	// Without LRU eviction, reject when at capacity (the branch below) and
+	// then start. Returning rejectIfAtCapacity() here never started it.
+	if !h.cfg.Instances.EnableLRUEviction {
+		canEvict = false
+	}
 
-	switch {
-	case !h.cfg.Instances.EnableLRUEviction:
-		if checkGlobal {
-			if err := h.rejectIfAtCapacity(); err != nil {
-				return err
-			}
-		}
-	case canEvict:
+	// External and Slurm instances use no local capacity; only their group
+	// quota applies
+	local := !inst.IsExternal()
+
+	if canEvict {
 		if err := h.evictFromGroupQuota(options.Group); err != nil {
 			return err
 		}
-		if checkGlobal {
+		if local {
 			if err := h.evictFromGlobalCapacity(); err != nil {
 				return err
 			}
 		}
-	default:
+	} else {
 		// Cannot evict — fail if at capacity.
-		if checkGlobal && h.InstanceManager.AtMaxRunning() {
+		if local && h.InstanceManager.AtMaxRunning() {
 			return ErrMaxInstancesReached
 		}
 	}

@@ -107,6 +107,7 @@ An external instance is a backend server that llamactl doesn't run itself, such 
 - `start_command` / `stop_command`: run on start and stop (including on-demand start and idle timeout). Leave empty for an always-on service; starting or stopping then only changes the instance's status.
 - `status_command`: exits 0 while the service is running. It is polled every 30 seconds to mark the instance failed if the service dies, and run when llamactl starts so the instance reflects the service's real state.
 - `logs_command`: prints recent logs for the Logs dialog; `{lines}` is replaced with the number of lines requested.
+- Environment variables set on the instance are passed to every command.
 
 Commands are argument lists run directly, not through a shell, with a 60-second timeout. Use `ssh -o BatchMode=yes` so a missing key fails instead of hanging on a password prompt. External instances don't count against `max_instances` or `max_running_instances`, are never evicted to make room for local instances, and keep running when llamactl shuts down. Group limits still apply. An instance can't be switched between external and local after creation.
 

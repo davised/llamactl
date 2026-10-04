@@ -7,6 +7,8 @@ import (
 	"llamactl/pkg/instance"
 	"llamactl/pkg/manager"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 func newStartTestHandler(t *testing.T, instances config.InstancesConfig) *Handler {
@@ -53,44 +55,28 @@ func createOnDemandExternal(t *testing.T, h *Handler) *instance.Instance {
 	return inst
 }
 
-// With LRU eviction disabled, on-demand start must still start the instance
-// (it previously returned after the capacity check without starting it).
-func TestMaybeStartLocked_StartsWithLRUEvictionDisabled(t *testing.T) {
-	h := newStartTestHandler(t, config.InstancesConfig{
-		EnableLRUEviction:   false,
-		MaxRunningInstances: -1,
-		MaxInstances:        -1,
-	})
-	inst := createOnDemandExternal(t, h)
+// An on-demand start starts the instance whatever the eviction settings,
+// as long as there is room. (With LRU eviction disabled it used to return
+// after the capacity check without starting anything.) Servers that run
+// elsewhere use no local capacity, so a full local limit never blocks them.
+func TestMaybeStartLocked_StartsWheneverThereIsRoom(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		lru := rapid.Bool().Draw(rt, "lru")
+		canEvict := rapid.Bool().Draw(rt, "canEvict")
+		maxRunning := rapid.SampledFrom([]int{-1, 0, 1, 5}).Draw(rt, "maxRunning")
 
-	if err := h.maybeStartLocked(inst, true); err != nil {
-		t.Fatalf("maybeStartLocked failed: %v", err)
-	}
-	if !inst.IsRunning() {
-		t.Error("expected instance to be started")
-	}
-}
-
-// External instances run on other hosts, so a full local capacity must not
-// block them or trigger eviction.
-func TestMaybeStartLocked_ExternalIgnoresLocalCapacity(t *testing.T) {
-	for _, lru := range []bool{true, false} {
 		h := newStartTestHandler(t, config.InstancesConfig{
 			EnableLRUEviction:   lru,
-			MaxRunningInstances: 0, // local capacity is always full
+			MaxRunningInstances: maxRunning,
 			MaxInstances:        -1,
 		})
 		inst := createOnDemandExternal(t, h)
 
-		for _, canEvict := range []bool{true, false} {
-			if inst.IsRunning() {
-				if _, err := h.InstanceManager.StopInstance(inst.Name); err != nil {
-					t.Fatalf("StopInstance failed: %v", err)
-				}
-			}
-			if err := h.maybeStartLocked(inst, canEvict); err != nil {
-				t.Errorf("lru=%v canEvict=%v: maybeStartLocked failed: %v", lru, canEvict, err)
-			}
+		if err := h.maybeStartLocked(inst, canEvict); err != nil {
+			rt.Fatalf("lru=%v canEvict=%v maxRunning=%d: %v", lru, canEvict, maxRunning, err)
 		}
-	}
+		if !inst.IsRunning() {
+			rt.Fatalf("lru=%v canEvict=%v maxRunning=%d: not started", lru, canEvict, maxRunning)
+		}
+	})
 }

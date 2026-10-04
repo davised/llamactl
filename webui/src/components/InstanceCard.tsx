@@ -2,11 +2,12 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Instance, SlurmJob } from "@/types/instance";
+import type { Instance } from "@/types/instance";
 import { Edit, ExternalLink, FileText, Play, Square, Trash2, MoreHorizontal, Download, Boxes, Layers } from "lucide-react";
 import LogsDialog from "@/components/LogDialog";
 import ModelsDialog from "@/components/ModelsDialog";
 import HealthBadge from "@/components/HealthBadge";
+import SlurmJobLine from "@/components/SlurmJobLine";
 import BackendBadge from "@/components/BackendBadge";
 import { useState, useEffect } from "react";
 import { useInstanceHealth } from "@/hooks/useInstanceHealth";
@@ -18,34 +19,6 @@ interface InstanceCardProps {
   stopInstance: (name: string) => void;
   deleteInstance: (name: string) => void;
   editInstance: (instance: Instance) => void;
-}
-
-// Formats minutes as "1d 2h", "3h 5m" or "45m"
-function formatMinutes(minutes: number): string {
-  const d = Math.floor(minutes / 1440);
-  const h = Math.floor((minutes % 1440) / 60);
-  const m = Math.floor(minutes % 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-// One line of Slurm job details: id, state, node and time left (or the
-// reason it is still queued)
-export function SlurmJobLine({ job }: { job: SlurmJob }) {
-  const parts = [`Job ${job.job_id}`, job.state.toLowerCase()];
-  if (job.partition) parts.push(job.partition);
-  if (job.state === "RUNNING" && job.nodes) parts.push(`on ${job.nodes}`);
-  if (job.reason) parts.push(`(${job.reason})`);
-  if (job.state === "RUNNING" && job.start_time && job.time_limit) {
-    const left = job.time_limit - (Date.now() / 1000 - job.start_time) / 60;
-    if (left > 0) parts.push(`${formatMinutes(left)} left`);
-  }
-  return (
-    <p className="text-xs text-muted-foreground font-mono" data-testid="slurm-job">
-      {parts.join(" · ")}
-    </p>
-  );
 }
 
 function InstanceCard({
@@ -64,7 +37,6 @@ function InstanceCard({
   const running = instance.status === "running";
   // A queued or starting Slurm job can be stopped (cancelled) too
   const active = running || instance.status === "pending" || instance.status === "starting";
-  const slurmJob = instance.slurm_job;
   const isLlamaCpp = instance.options?.backend_type === "llama_cpp";
 
   // Fetch models for llama.cpp instances
@@ -178,7 +150,7 @@ function InstanceCard({
               )}
             </div>
 
-            {slurmJob && <SlurmJobLine job={slurmJob} />}
+            {instance.slurm_job && <SlurmJobLine job={instance.slurm_job} />}
           </div>
         </CardHeader>
 

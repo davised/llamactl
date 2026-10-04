@@ -1,7 +1,6 @@
 package instance
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,7 +11,6 @@ import (
 
 	"llamactl/pkg/backends"
 	"llamactl/pkg/config"
-	"llamactl/pkg/slurm"
 )
 
 // Instance represents a running instance of llama server
@@ -25,26 +23,16 @@ type Instance struct {
 	globalInstanceSettings *config.InstancesConfig
 	globalBackendSettings  *config.BackendConfig
 	globalNodesConfig      map[string]config.NodeConfig
-	globalSlurmConfig      *config.SlurmConfig
 	localNodeName          string `json:"-"` // Name of the local node for remote detection
 
 	status  *status  `json:"-"`
 	options *options `json:"-"`
 
 	// Components (can be nil for remote instances)
-	process  *process  `json:"-"` // local instances
-	external *external `json:"-"` // external instances
-	slurm    *slurmJob `json:"-"` // Slurm job instances
-	proxy    *proxy    `json:"-"`
-	logger   *logger   `json:"-"`
-}
-
-// executor starts and stops the backend server of an instance.
-type executor interface {
-	start() error
-	stop() error
-	restart() error
-	waitForHealthy(timeout int) error
+	process *process `json:"-"`
+	proxy   *proxy   `json:"-"`
+	logger  *logger  `json:"-"`
+	driver  driver   `json:"-"` // runs the server elsewhere (external service, Slurm job); see driver.go
 }
 
 // New creates a new instance with the given name, log path, options and local node name
@@ -72,7 +60,6 @@ func New(name string, globalConfig *config.AppConfig, opts *Options, onStatusCha
 		globalInstanceSettings: globalInstanceSettings,
 		globalBackendSettings:  globalBackendSettings,
 		globalNodesConfig:      globalNodesConfig,
-		globalSlurmConfig:      &globalConfig.Slurm,
 		localNodeName:          localNodeName,
 		Created:                time.Now().Unix(),
 		status:                 status,
@@ -84,13 +71,10 @@ func New(name string, globalConfig *config.AppConfig, opts *Options, onStatusCha
 		log.Println("Warning: Failed to create proxy for instance", instance.Name, "-", err)
 	}
 
-	// Only create logger and process for local instances; external
-	// instances are managed through their configured commands instead
-	if instance.IsSlurm() {
-		instance.slurm = newSlurmJob(instance)
-	} else if instance.IsExternal() {
-		instance.external = newExternal(instance)
-	} else if !instance.IsRemote() {
+	instance.driver = newDriver(instance, globalConfig)
+
+	// Only create logger, proxy, and process for local instances
+	if !instance.IsRemote() && instance.driver == nil {
 		logRotationConfig := &LogRotationConfig{
 			Enabled:  globalInstanceSettings.LogRotationEnabled,
 			MaxSize:  globalInstanceSettings.LogRotationMaxSize,
@@ -137,86 +121,48 @@ func syncPresetIni(name string, opts *Options, instancesDir string) error {
 	return nil
 }
 
-// executor returns the component that runs the backend server, or nil for
-// remote instances (which are managed by their own node)
-func (i *Instance) executor() executor {
-	if i.slurm != nil {
-		return i.slurm
-	}
-	if i.external != nil {
-		return i.external
-	}
-	if i.process != nil {
-		return i.process
-	}
-	return nil
-}
-
 // Start starts the instance
 func (i *Instance) Start() error {
-	e := i.executor()
-	if e == nil {
+	if i.driver != nil {
+		return i.driver.start()
+	}
+	if i.process == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be started locally)", i.Name)
 	}
-	return e.start()
+	return i.process.start()
 }
 
 // Stop stops the instance
 func (i *Instance) Stop() error {
-	e := i.executor()
-	if e == nil {
+	if i.driver != nil {
+		return i.driver.stop()
+	}
+	if i.process == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be stopped locally)", i.Name)
 	}
-	return e.stop()
+	return i.process.stop()
 }
 
 // Restart restarts the instance
 func (i *Instance) Restart() error {
-	e := i.executor()
-	if e == nil {
+	if i.driver != nil {
+		return i.driver.restart()
+	}
+	if i.process == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be restarted locally)", i.Name)
 	}
-	return e.restart()
+	return i.process.restart()
 }
 
 // WaitForHealthy waits for the instance to become healthy
 func (i *Instance) WaitForHealthy(timeout int) error {
-	e := i.executor()
-	if e == nil {
+	if i.driver != nil {
+		return i.driver.waitForHealthy(timeout)
+	}
+	if i.process == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be health checked locally)", i.Name)
 	}
-	return e.waitForHealthy(timeout)
-}
-
-// SyncExternalStatus sets an external instance's status from its status
-// command. It returns false if the instance is not external or has no
-// status command.
-func (i *Instance) SyncExternalStatus() bool {
-	if i.slurm != nil {
-		// Set from squeue by the manager's Slurm poller
-		return true
-	}
-	if i.external == nil {
-		return false
-	}
-	return i.external.syncStatus()
-}
-
-// UpdateSlurm sets a Slurm instance's status from a squeue listing of the
-// user's jobs, taken at queriedAt (just before squeue ran). It is a no-op
-// for other instances.
-func (i *Instance) UpdateSlurm(ctx context.Context, jobs []slurm.Job, queriedAt time.Time) {
-	if i.slurm != nil {
-		i.slurm.update(ctx, jobs, queriedAt)
-	}
-}
-
-// SlurmJob returns the instance's current (or most recent) Slurm job, or nil.
-func (i *Instance) SlurmJob() *slurm.Job {
-	if i.slurm == nil {
-		return nil
-	}
-	return i.slurm.currentJob()
+	return i.process.waitForHealthy(timeout)
 }
 
 func (i *Instance) GetBackendType() backends.BackendType {
@@ -297,8 +243,8 @@ func (i *Instance) SetTimeProvider(tp TimeProvider) {
 }
 
 func (i *Instance) GetHost() string {
-	if i.slurm != nil {
-		return i.slurm.host()
+	if h, ok := i.driver.(hostResolver); ok {
+		return h.host()
 	}
 	if i.options == nil {
 		return "localhost"
@@ -341,32 +287,10 @@ func (i *Instance) IsRemote() bool {
 	return true
 }
 
-// IsExternal returns true if the backend server runs outside llamactl
-// (an external service or a Slurm job), so it uses no local capacity or ports
-func (i *Instance) IsExternal() bool {
-	opts := i.GetOptions()
-	return opts != nil && opts.RunsElsewhere() && !i.IsRemote()
-}
-
-// IsSlurm returns true if the backend server runs as a Slurm job
-func (i *Instance) IsSlurm() bool {
-	opts := i.GetOptions()
-	return opts != nil && opts.Slurm != nil && !i.IsRemote()
-}
-
-// IsActive returns true if the instance is running or on its way up (a
-// queued or starting Slurm job)
-func (i *Instance) IsActive() bool {
-	return i.GetStatus().IsActive()
-}
-
 // GetLogs retrieves the last n lines of logs from the instance
 func (i *Instance) GetLogs(num_lines int) (string, error) {
-	if i.slurm != nil {
-		return i.slurm.getLogs(num_lines)
-	}
-	if i.external != nil {
-		return i.external.getLogs(num_lines)
+	if i.driver != nil {
+		return i.driver.getLogs(num_lines)
 	}
 	if i.logger == nil {
 		return "", fmt.Errorf("instance %s has no logger (remote instances don't have logs)", i.Name)
@@ -457,19 +381,19 @@ func (i *Instance) buildEnvironment() map[string]string {
 // MarshalJSON implements json.Marshaler for Instance
 func (i *Instance) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
-		ID       int        `json:"id"`
-		Name     string     `json:"name"`
-		Status   *status    `json:"status"`
-		Created  int64      `json:"created,omitempty"`
-		Options  *options   `json:"options,omitempty"`
-		SlurmJob *slurm.Job `json:"slurm_job,omitempty"`
+		ID      int      `json:"id"`
+		Name    string   `json:"name"`
+		Status  *status  `json:"status"`
+		Created int64    `json:"created,omitempty"`
+		Options *options `json:"options,omitempty"`
+		Job     any      `json:"slurm_job,omitempty"`
 	}{
-		ID:       i.ID,
-		Name:     i.Name,
-		Status:   i.status,
-		Created:  i.Created,
-		Options:  i.options,
-		SlurmJob: i.SlurmJob(),
+		ID:      i.ID,
+		Name:    i.Name,
+		Status:  i.status,
+		Created: i.Created,
+		Options: i.options,
+		Job:     i.jobInfo(),
 	})
 }
 

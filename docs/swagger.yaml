@@ -35,7 +35,9 @@ definitions:
       server:
         $ref: '#/definitions/config.ServerConfig'
       slurm:
-        $ref: '#/definitions/config.SlurmConfig'
+        allOf:
+        - $ref: '#/definitions/config.SlurmConfig'
+        description: see slurm.go
       version:
         type: string
     type: object
@@ -350,9 +352,7 @@ definitions:
       external:
         allOf:
         - $ref: '#/definitions/instance.ExternalOptions'
-        description: |-
-          External service: the backend runs outside llamactl and is managed
-          through these commands instead of a local process
+        description: Run the server elsewhere instead of as a local process (see driver.go)
       group:
         description: Instance group for hierarchical eviction
         type: string
@@ -371,9 +371,7 @@ definitions:
         description: seconds
         type: integer
       slurm:
-        allOf:
-        - $ref: '#/definitions/instance.SlurmOptions'
-        description: 'Slurm job: the backend runs as a batch job on a compute node'
+        $ref: '#/definitions/instance.SlurmOptions'
     type: object
   instance.SlurmOptions:
     properties:
