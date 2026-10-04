@@ -136,6 +136,12 @@ func (l *lifecycleManager) evictLRU(groupLabel string) error {
 			continue
 		}
 
+		// External instances don't use local capacity, so evicting one
+		// frees nothing for the global limit; only group quotas apply
+		if groupLabel == "" && inst.IsExternal() {
+			continue
+		}
+
 		// Skip instances without idle timeout
 		if inst.GetOptions() != nil && inst.GetOptions().IdleTimeout != nil && *inst.GetOptions().IdleTimeout <= 0 {
 			continue

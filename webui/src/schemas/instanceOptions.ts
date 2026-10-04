@@ -48,6 +48,15 @@ export const CreateInstanceOptionsSchema = z.object({
   docker_enabled: z.boolean().optional(),
   command_override: z.string().optional(),
 
+  // External service: the backend runs outside llamactl (e.g. a systemd
+  // unit on another host) and is managed through these commands
+  external: z.object({
+    start_command: z.array(z.string()).optional(),
+    stop_command: z.array(z.string()).optional(),
+    status_command: z.array(z.string()).optional(),
+    logs_command: z.array(z.string()).optional(),
+  }).optional(),
+
   // Backend configuration
   backend_type: z.enum([BackendType.LLAMA_CPP, BackendType.MLX_LM, BackendType.VLLM, BackendType.CUSTOM]).optional(),
   backend_options: BackendOptionsSchema.optional(),

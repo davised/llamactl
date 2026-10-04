@@ -34,3 +34,12 @@ export function parseArgs(input: string): string[] {
 
   return args
 }
+
+// Joins arguments into a command string, quoting any containing whitespace
+// or quotes so the result round-trips through parseArgs
+export function formatCommand(argv: string[] | undefined): string {
+  if (!argv) return ''
+  return argv
+    .map(arg => (arg === '' || /[\s"']/.test(arg) ? (arg.includes('"') ? `'${arg}'` : `"${arg}"`) : arg))
+    .join(' ')
+}

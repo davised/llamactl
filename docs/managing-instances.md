@@ -99,6 +99,34 @@ Custom backend instances reference a `backends.custom.<name>` entry from the [co
 
 The `{port}` and `{model}` placeholders are substituted at start; see [Custom Backends](custom-backends.md) for how they work.
 
+### External Services
+
+An external instance is a backend server that llamactl doesn't run itself, such as a `systemctl --user` unit on another host. llamactl proxies requests to its `host`/`port` and runs commands you configure to manage it. Enable **External Service** under Execution Context in the Backend tab, or set `external` via the API.
+
+- `host` / `port` (required in `backend_options`): where the server listens. The port isn't taken from llamactl's local port range, so services on different hosts can share a port.
+- `start_command` / `stop_command`: run on start and stop (including on-demand start and idle timeout). Leave empty for an always-on service; starting or stopping then only changes the instance's status.
+- `status_command`: exits 0 while the service is running. It is polled every 30 seconds to mark the instance failed if the service dies, and run when llamactl starts so the instance reflects the service's real state.
+- `logs_command`: prints recent logs for the Logs dialog; `{lines}` is replaced with the number of lines requested.
+
+Commands are argument lists run directly, not through a shell, with a 60-second timeout. Use `ssh -o BatchMode=yes` so a missing key fails instead of hanging on a password prompt. External instances don't count against `max_instances` or `max_running_instances`, are never evicted to make room for local instances, and keep running when llamactl shuts down. Group limits still apply. An instance can't be switched between external and local after creation.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/instances/qwen \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "backend_type": "vllm",
+    "backend_options": {"model": "Qwen/Qwen3-8B", "host": "gpu01", "port": 8000},
+    "on_demand_start": true,
+    "external": {
+      "start_command": ["ssh", "-o", "BatchMode=yes", "gpu01", "systemctl", "--user", "start", "vllm-qwen"],
+      "stop_command": ["ssh", "-o", "BatchMode=yes", "gpu01", "systemctl", "--user", "stop", "vllm-qwen"],
+      "status_command": ["ssh", "-o", "BatchMode=yes", "gpu01", "systemctl", "--user", "is-active", "--quiet", "vllm-qwen"],
+      "logs_command": ["ssh", "-o", "BatchMode=yes", "gpu01", "journalctl", "--user", "-u", "vllm-qwen", "-n", "{lines}", "--no-pager"]
+    }
+  }'
+```
+
 **Via API**
 
 ```bash

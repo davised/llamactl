@@ -69,6 +69,10 @@ func (im *instanceManager) CreateInstance(name string, options *instance.Options
 		return nil, err
 	}
 
+	if err := im.validateExternal(options); err != nil {
+		return nil, err
+	}
+
 	// Check if instance with this name already exists (must be globally unique)
 	if _, exists := im.registry.get(name); exists {
 		return nil, fmt.Errorf("instance with name %s already exists", name)
@@ -131,26 +135,30 @@ func (im *instanceManager) CreateInstance(name string, options *instance.Options
 	totalInstances := im.registry.count()
 	remoteCount := 0
 	for _, inst := range im.registry.list() {
-		if inst.IsRemote() {
+		if inst.IsRemote() || inst.IsExternal() {
 			remoteCount++
 		}
 	}
 	localInstanceCount := totalInstances - remoteCount
-	if localInstanceCount >= im.globalConfig.Instances.MaxInstances && im.globalConfig.Instances.MaxInstances != -1 {
+	if options.External == nil && localInstanceCount >= im.globalConfig.Instances.MaxInstances && im.globalConfig.Instances.MaxInstances != -1 {
 		return nil, fmt.Errorf("maximum number of instances (%d) reached", im.globalConfig.Instances.MaxInstances)
 	}
 
-	// Assign and validate port for backend-specific options
+	// Assign and validate port for backend-specific options. External
+	// instances listen on another host, so their port is not ours to manage.
 	currentPort := im.getPortFromOptions(options)
 	var allocatedPort int
-	if currentPort == 0 {
+	switch {
+	case options.External != nil:
+		// validateExternal already required an explicit port
+	case currentPort == 0:
 		// Allocate a port if not specified
 		allocatedPort, err = im.ports.allocate(name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to allocate port: %w", err)
 		}
 		im.setPortInOptions(options, allocatedPort)
-	} else {
+	default:
 		// Use the specified port
 		if err := im.ports.allocateSpecific(currentPort, name); err != nil {
 			return nil, fmt.Errorf("port %d is already in use: %w", currentPort, err)
@@ -257,17 +265,26 @@ func (im *instanceManager) UpdateInstance(name string, options *instance.Options
 		return nil, err
 	}
 
+	if err := im.validateExternal(options); err != nil {
+		return nil, err
+	}
+
+	// The executor is chosen when the instance is created
+	if (options.External != nil) != inst.IsExternal() {
+		return nil, validation.ValidationError(fmt.Errorf("cannot switch instance %s between external and local; delete and recreate it", name))
+	}
+
 	// Lock this specific instance only
 	lock := im.lockInstance(name)
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Handle port changes
+	// Handle port changes (external instances don't hold local ports)
 	oldPort := inst.GetPort()
 	newPort := im.getPortFromOptions(options)
 	var allocatedPort int
 
-	if newPort != oldPort {
+	if newPort != oldPort && !inst.IsExternal() {
 		// Port is changing - need to release old and allocate new
 		if newPort == 0 {
 			// Auto-allocate new port
@@ -428,10 +445,11 @@ func (im *instanceManager) AtMaxRunning() bool {
 		return false
 	}
 
-	// Count only local running instances (each node has its own limits)
+	// Count only local running instances (each node has its own limits, and
+	// external instances run on other hosts)
 	localRunningCount := 0
 	for _, inst := range im.registry.listRunning() {
-		if !inst.IsRemote() {
+		if !inst.IsRemote() && !inst.IsExternal() {
 			localRunningCount++
 		}
 	}
@@ -559,7 +577,8 @@ func (im *instanceManager) setPortInOptions(options *instance.Options, port int)
 // provides a command; merged args must contain {port}, and {model} requires
 // a model set. Runs in the manager because options lack config access.
 func (im *instanceManager) validateCustomBackend(options *instance.Options) error {
-	if options.BackendOptions.BackendType != backends.BackendTypeCustom {
+	// External instances never run the custom backend's command
+	if options.BackendOptions.BackendType != backends.BackendTypeCustom || options.External != nil {
 		return nil
 	}
 
@@ -596,6 +615,24 @@ func (im *instanceManager) validateCustomBackend(options *instance.Options) erro
 		return validation.ValidationError(fmt.Errorf("custom backend '%s' args use the {model} placeholder but no model is set", customOpts.Name))
 	}
 
+	return nil
+}
+
+// validateExternal checks an external instance's commands and requires an
+// explicit host and port, since there is no local process to assign them.
+func (im *instanceManager) validateExternal(options *instance.Options) error {
+	if options.External == nil {
+		return nil
+	}
+	if err := options.External.Validate(); err != nil {
+		return validation.ValidationError(err)
+	}
+	if options.BackendOptions.GetHost() == "" {
+		return validation.ValidationError(fmt.Errorf("external instances require a host in backend options"))
+	}
+	if options.BackendOptions.GetPort() <= 0 {
+		return validation.ValidationError(fmt.Errorf("external instances require a port in backend options"))
+	}
 	return nil
 }
 

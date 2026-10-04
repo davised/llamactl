@@ -2684,6 +2684,39 @@
                 }
             }
         },
+        "instance.ExternalOptions": {
+            "type": "object",
+            "properties": {
+                "logs_command": {
+                    "description": "LogsCommand prints recent log output. \"{lines}\" in any argument is\nreplaced with the requested number of lines.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "start_command": {
+                    "description": "StartCommand starts the service. If empty, the service is assumed to be\nalways on and starting the instance only marks it running.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "status_command": {
+                    "description": "StatusCommand exits 0 while the service is running. When set, it is\npolled to detect services that die, and used at startup to discover\nwhether the service is already running.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "stop_command": {
+                    "description": "StopCommand stops the service. If empty, stopping only marks the\ninstance stopped.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "instance.Instance": {
             "type": "object",
             "properties": {
@@ -2719,6 +2752,14 @@
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "external": {
+                    "description": "External service: the backend runs outside llamactl and is managed\nthrough these commands instead of a local process",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/instance.ExternalOptions"
+                        }
+                    ]
                 },
                 "group": {
                     "description": "Instance group for hierarchical eviction",

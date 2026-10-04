@@ -9,6 +9,8 @@ import SelectInput from '@/components/form/SelectInput'
 import CheckboxInput from '@/components/form/CheckboxInput'
 import TextInput from '@/components/form/TextInput'
 import EnvVarsInput from '@/components/form/EnvVarsInput'
+import NumberInput from '@/components/form/NumberInput'
+import CommandInput from '@/components/form/CommandInput'
 import { useBackendSettings, useCustomBackends, useCustomBackendSettings } from '@/hooks/useConfig'
 import PresetDialog from './PresetDialog'
 
@@ -36,6 +38,14 @@ const BackendTab: React.FC<BackendTabProps> = ({
   const customName = (formData.backend_options as Record<string, unknown> | undefined)?.name as string | undefined
   const customBackends = useCustomBackends()
   const customSettings = useCustomBackendSettings(customName)
+
+  const backendOptions = formData.backend_options as Record<string, unknown> | undefined
+  const external = formData.external
+  const isExternal = external !== undefined
+
+  const handleExternalChange = (key: keyof NonNullable<CreateInstanceOptions['external']>, value: string[] | undefined) => {
+    onChange('external', { ...external, [key]: value })
+  }
 
   const handleBackendTypeChange = (value: string | undefined) => {
     if (value?.startsWith(CUSTOM_OPTION_PREFIX)) {
@@ -125,12 +135,13 @@ const BackendTab: React.FC<BackendTabProps> = ({
           </div>
           {!showExecutionContext && (
             <div className="text-sm text-muted-foreground">
+              {isExternal && <span className="mr-3">External service</span>}
               {formData.docker_enabled && <span className="mr-3">Docker enabled</span>}
               {formData.command_override && <span className="mr-3">Custom command</span>}
               {formData.environment && Object.keys(formData.environment).length > 0 && (
                 <span>{Object.keys(formData.environment).length} env var{Object.keys(formData.environment).length > 1 ? 's' : ''}</span>
               )}
-              {!formData.docker_enabled && !formData.command_override && (!formData.environment || Object.keys(formData.environment).length === 0) && (
+              {!isExternal && !formData.docker_enabled && !formData.command_override && (!formData.environment || Object.keys(formData.environment).length === 0) && (
                 <span>Default</span>
               )}
             </div>
@@ -139,7 +150,68 @@ const BackendTab: React.FC<BackendTabProps> = ({
 
         {showExecutionContext && (
           <div className="space-y-4 pl-6 border-l-2 border-muted">
-            {formData.backend_type !== BackendType.MLX_LM && (
+            <CheckboxInput
+              id="external"
+              label="External Service"
+              value={isExternal}
+              onChange={(value) => onChange('external', value ? {} : undefined)}
+              description="The backend runs outside llamactl (e.g. a systemd unit on another host); llamactl proxies to its host and port and runs the commands below to manage it. Can't be changed after creation."
+            />
+
+            {isExternal && (
+              <div className="space-y-4">
+                <TextInput
+                  id="external_host"
+                  label="Host"
+                  value={backendOptions?.host as string | undefined}
+                  onChange={(value) => onBackendFieldChange('host', value)}
+                  placeholder="gpu01.cluster.local"
+                  description="Host the backend server listens on"
+                />
+                <NumberInput
+                  id="external_port"
+                  label="Port"
+                  value={backendOptions?.port as number | undefined}
+                  onChange={(value) => onBackendFieldChange('port', value)}
+                  placeholder="8000"
+                  description="Port the backend server listens on"
+                />
+                <CommandInput
+                  id="external_start_command"
+                  label="Start Command"
+                  value={external?.start_command}
+                  onChange={(value) => handleExternalChange('start_command', value)}
+                  placeholder="ssh -o BatchMode=yes gpu01 systemctl --user start vllm-qwen"
+                  description="Leave empty if the service is always on"
+                />
+                <CommandInput
+                  id="external_stop_command"
+                  label="Stop Command"
+                  value={external?.stop_command}
+                  onChange={(value) => handleExternalChange('stop_command', value)}
+                  placeholder="ssh -o BatchMode=yes gpu01 systemctl --user stop vllm-qwen"
+                  description="Leave empty to only mark the instance stopped"
+                />
+                <CommandInput
+                  id="external_status_command"
+                  label="Status Command"
+                  value={external?.status_command}
+                  onChange={(value) => handleExternalChange('status_command', value)}
+                  placeholder="ssh -o BatchMode=yes gpu01 systemctl --user is-active --quiet vllm-qwen"
+                  description="Exits 0 while the service is running; polled to detect a dead service and checked when llamactl starts"
+                />
+                <CommandInput
+                  id="external_logs_command"
+                  label="Logs Command"
+                  value={external?.logs_command}
+                  onChange={(value) => handleExternalChange('logs_command', value)}
+                  placeholder="ssh -o BatchMode=yes gpu01 journalctl --user -u vllm-qwen -n {lines} --no-pager"
+                  description="Prints recent logs; {lines} is replaced with the number of lines requested"
+                />
+              </div>
+            )}
+
+            {!isExternal && formData.backend_type !== BackendType.MLX_LM && (
               <CheckboxInput
                 id="docker_enabled"
                 label="Enable Docker"
@@ -149,7 +221,7 @@ const BackendTab: React.FC<BackendTabProps> = ({
               />
             )}
 
-            {(formData.backend_type === BackendType.MLX_LM || formData.docker_enabled !== true) && (
+            {!isExternal && (formData.backend_type === BackendType.MLX_LM || formData.docker_enabled !== true) && (
               <TextInput
                 id="command_override"
                 label="Command Override"
@@ -160,13 +232,15 @@ const BackendTab: React.FC<BackendTabProps> = ({
               />
             )}
 
-            <EnvVarsInput
-              id="environment"
-              label="Environment Variables"
-              value={formData.environment}
-              onChange={(value) => onChange('environment', value)}
-              description="Custom environment variables for the instance"
-            />
+            {!isExternal && (
+              <EnvVarsInput
+                id="environment"
+                label="Environment Variables"
+                value={formData.environment}
+                onChange={(value) => onChange('environment', value)}
+                description="Custom environment variables for the instance"
+              />
+            )}
           </div>
         )}
       </div>

@@ -29,9 +29,18 @@ type Instance struct {
 	options *options `json:"-"`
 
 	// Components (can be nil for remote instances)
-	process *process `json:"-"`
-	proxy   *proxy   `json:"-"`
-	logger  *logger  `json:"-"`
+	process  *process  `json:"-"` // local instances
+	external *external `json:"-"` // external instances
+	proxy    *proxy    `json:"-"`
+	logger   *logger   `json:"-"`
+}
+
+// executor starts and stops the backend server of an instance.
+type executor interface {
+	start() error
+	stop() error
+	restart() error
+	waitForHealthy(timeout int) error
 }
 
 // New creates a new instance with the given name, log path, options and local node name
@@ -70,8 +79,11 @@ func New(name string, globalConfig *config.AppConfig, opts *Options, onStatusCha
 		log.Println("Warning: Failed to create proxy for instance", instance.Name, "-", err)
 	}
 
-	// Only create logger, proxy, and process for local instances
-	if !instance.IsRemote() {
+	// Only create logger and process for local instances; external
+	// instances are managed through their configured commands instead
+	if instance.IsExternal() {
+		instance.external = newExternal(instance)
+	} else if !instance.IsRemote() {
 		logRotationConfig := &LogRotationConfig{
 			Enabled:  globalInstanceSettings.LogRotationEnabled,
 			MaxSize:  globalInstanceSettings.LogRotationMaxSize,
@@ -118,36 +130,62 @@ func syncPresetIni(name string, opts *Options, instancesDir string) error {
 	return nil
 }
 
+// executor returns the component that runs the backend server, or nil for
+// remote instances (which are managed by their own node)
+func (i *Instance) executor() executor {
+	if i.external != nil {
+		return i.external
+	}
+	if i.process != nil {
+		return i.process
+	}
+	return nil
+}
+
 // Start starts the instance
 func (i *Instance) Start() error {
-	if i.process == nil {
+	e := i.executor()
+	if e == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be started locally)", i.Name)
 	}
-	return i.process.start()
+	return e.start()
 }
 
 // Stop stops the instance
 func (i *Instance) Stop() error {
-	if i.process == nil {
+	e := i.executor()
+	if e == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be stopped locally)", i.Name)
 	}
-	return i.process.stop()
+	return e.stop()
 }
 
 // Restart restarts the instance
 func (i *Instance) Restart() error {
-	if i.process == nil {
+	e := i.executor()
+	if e == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be restarted locally)", i.Name)
 	}
-	return i.process.restart()
+	return e.restart()
 }
 
 // WaitForHealthy waits for the instance to become healthy
 func (i *Instance) WaitForHealthy(timeout int) error {
-	if i.process == nil {
+	e := i.executor()
+	if e == nil {
 		return fmt.Errorf("instance %s has no process component (remote instances cannot be health checked locally)", i.Name)
 	}
-	return i.process.waitForHealthy(timeout)
+	return e.waitForHealthy(timeout)
+}
+
+// SyncExternalStatus sets an external instance's status from its status
+// command. It returns false if the instance is not external or has no
+// status command.
+func (i *Instance) SyncExternalStatus() bool {
+	if i.external == nil {
+		return false
+	}
+	return i.external.syncStatus()
 }
 
 func (i *Instance) GetBackendType() backends.BackendType {
@@ -269,8 +307,17 @@ func (i *Instance) IsRemote() bool {
 	return true
 }
 
+// IsExternal returns true if the backend server runs outside llamactl
+func (i *Instance) IsExternal() bool {
+	opts := i.GetOptions()
+	return opts != nil && opts.External != nil && !i.IsRemote()
+}
+
 // GetLogs retrieves the last n lines of logs from the instance
 func (i *Instance) GetLogs(num_lines int) (string, error) {
+	if i.external != nil {
+		return i.external.getLogs(num_lines)
+	}
 	if i.logger == nil {
 		return "", fmt.Errorf("instance %s has no logger (remote instances don't have logs)", i.Name)
 	}

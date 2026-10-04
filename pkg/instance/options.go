@@ -30,6 +30,9 @@ type Options struct {
 	// Execution context overrides
 	DockerEnabled   *bool  `json:"docker_enabled,omitempty"`
 	CommandOverride string `json:"command_override,omitempty"`
+	// External service: the backend runs outside llamactl and is managed
+	// through these commands instead of a local process
+	External *ExternalOptions `json:"external,omitempty"`
 
 	// Instance group for hierarchical eviction
 	Group string `json:"group,omitempty"`

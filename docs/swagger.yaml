@@ -267,6 +267,38 @@ definitions:
         description: Response headers to send with responses
         type: object
     type: object
+  instance.ExternalOptions:
+    properties:
+      logs_command:
+        description: |-
+          LogsCommand prints recent log output. "{lines}" in any argument is
+          replaced with the requested number of lines.
+        items:
+          type: string
+        type: array
+      start_command:
+        description: |-
+          StartCommand starts the service. If empty, the service is assumed to be
+          always on and starting the instance only marks it running.
+        items:
+          type: string
+        type: array
+      status_command:
+        description: |-
+          StatusCommand exits 0 while the service is running. When set, it is
+          polled to detect services that die, and used at startup to discover
+          whether the service is already running.
+        items:
+          type: string
+        type: array
+      stop_command:
+        description: |-
+          StopCommand stops the service. If empty, stopping only marks the
+          instance stopped.
+        items:
+          type: string
+        type: array
+    type: object
   instance.Instance:
     properties:
       created:
@@ -292,6 +324,12 @@ definitions:
           type: string
         description: Environment variables
         type: object
+      external:
+        allOf:
+        - $ref: '#/definitions/instance.ExternalOptions'
+        description: |-
+          External service: the backend runs outside llamactl and is managed
+          through these commands instead of a local process
       group:
         description: Instance group for hierarchical eviction
         type: string

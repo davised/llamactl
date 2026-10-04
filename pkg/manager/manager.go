@@ -102,8 +102,8 @@ func (im *instanceManager) Shutdown() {
 		// 3. Stop local instances concurrently
 		var wg sync.WaitGroup
 		for _, inst := range running {
-			if inst.IsRemote() {
-				continue // Skip remote instances
+			if inst.IsRemote() || inst.IsExternal() {
+				continue // Skip instances llamactl doesn't run itself
 			}
 			wg.Add(1)
 			go func(inst *instance.Instance) {
@@ -188,7 +188,7 @@ func (im *instanceManager) loadInstance(persistedInst *instance.Instance) error 
 		if err := im.remote.setInstanceNode(name, nodeName); err != nil {
 			return fmt.Errorf("failed to set instance node: %w", err)
 		}
-	} else {
+	} else if !inst.IsExternal() {
 		// Allocate port for local instances
 		if inst.GetPort() > 0 {
 			port := inst.GetPort()
@@ -215,6 +215,12 @@ func (im *instanceManager) autoStartInstances() {
 	var instancesToStop []*instance.Instance
 
 	for _, inst := range instances {
+		// External instances with a status command report their real state
+		// instead of relying on what was persisted
+		if inst.SyncExternalStatus() {
+			continue
+		}
+
 		if inst.IsRunning() && // Was running when persisted
 			inst.GetOptions() != nil &&
 			inst.GetOptions().AutoRestart != nil {

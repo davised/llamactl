@@ -163,20 +163,29 @@ func (h *Handler) maybeStartLocked(inst *instance.Instance, canEvict bool) error
 		return nil
 	}
 
-	if !h.cfg.Instances.EnableLRUEviction {
-		return h.rejectIfAtCapacity()
-	}
+	// External instances run on other hosts and don't use local capacity,
+	// so only their group quota applies.
+	checkGlobal := !inst.IsExternal()
 
-	if canEvict {
+	switch {
+	case !h.cfg.Instances.EnableLRUEviction:
+		if checkGlobal {
+			if err := h.rejectIfAtCapacity(); err != nil {
+				return err
+			}
+		}
+	case canEvict:
 		if err := h.evictFromGroupQuota(options.Group); err != nil {
 			return err
 		}
-		if err := h.evictFromGlobalCapacity(); err != nil {
-			return err
+		if checkGlobal {
+			if err := h.evictFromGlobalCapacity(); err != nil {
+				return err
+			}
 		}
-	} else {
+	default:
 		// Cannot evict — fail if at capacity.
-		if h.InstanceManager.AtMaxRunning() {
+		if checkGlobal && h.InstanceManager.AtMaxRunning() {
 			return ErrMaxInstancesReached
 		}
 	}

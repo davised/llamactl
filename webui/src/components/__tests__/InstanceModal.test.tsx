@@ -154,6 +154,42 @@ describe('InstanceModal - Form Logic and Validation', () => {
         restart_delay: 5
       })
     })
+
+    it('submits external service options', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <InstanceDialog
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          onSave={mockOnSave}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/Instance Name/), 'qwen')
+      await user.click(screen.getByRole('tab', { name: /Backend/i }))
+      await user.click(screen.getByText('Execution Context'))
+      await user.click(screen.getByLabelText(/External Service/))
+
+      // Local-process settings don't apply to external services
+      expect(screen.queryByLabelText(/Command Override/)).not.toBeInTheDocument()
+
+      await user.type(screen.getByLabelText('Host'), 'gpu01')
+      await user.type(screen.getByLabelText('Port'), '8000')
+      await user.type(screen.getByLabelText('Start Command'), 'ssh gpu01 systemctl --user start vllm-qwen')
+      await user.type(screen.getByLabelText('Logs Command'), 'ssh gpu01 journalctl --user -u vllm-qwen -n {{lines}')
+
+      await user.click(screen.getByRole('tab', { name: /Advanced/i }))
+      await user.click(screen.getByTestId('dialog-save-button'))
+
+      expect(mockOnSave).toHaveBeenCalledWith('qwen', expect.objectContaining({
+        backend_options: expect.objectContaining({ host: 'gpu01', port: 8000 }),
+        external: {
+          start_command: ['ssh', 'gpu01', 'systemctl', '--user', 'start', 'vllm-qwen'],
+          logs_command: ['ssh', 'gpu01', 'journalctl', '--user', '-u', 'vllm-qwen', '-n', '{lines}'],
+        },
+      }))
+    })
   })
 
   describe('Edit Mode', () => {
