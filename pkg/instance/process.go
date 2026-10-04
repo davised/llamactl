@@ -459,8 +459,8 @@ func pollHealthy(inst *Instance, timeout int) error {
 	defer cancel()
 
 	// Get host/port from instance
-	host := inst.options.GetHost()
-	port := inst.options.GetPort()
+	host := inst.GetHost()
+	port := inst.GetPort()
 	healthURL := fmt.Sprintf("http://%s:%d%s", host, port, inst.GetHealthPath())
 
 	// Create a dedicated HTTP client for health checks

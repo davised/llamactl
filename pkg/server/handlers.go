@@ -157,9 +157,10 @@ func (h *Handler) maybeStartLocked(inst *instance.Instance, canEvict bool) error
 		return fmt.Errorf("instance is not running and on-demand start is not enabled")
 	}
 
-	// A concurrent request already started it while we waited for the lock —
-	// nothing to do; the caller waits for health below.
-	if inst.IsRunning() {
+	// A concurrent request already started it while we waited for the lock
+	// (or its Slurm job is already queued) — nothing to do; the caller waits
+	// for health below.
+	if inst.IsActive() {
 		return nil
 	}
 

@@ -78,6 +78,10 @@ func getDefaultConfig(dataDir string) AppConfig {
 			LogRotationMaxSize:   100,
 			LogRotationCompress:  false,
 		},
+		Slurm: SlurmConfig{
+			PollInterval:     15 * time.Second,
+			NodeHostTemplate: "{node}",
+		},
 		Database: DatabaseConfig{
 			Path:               "", // Will be set to data_dir/llamactl.db if empty
 			MaxOpenConnections: 25,

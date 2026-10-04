@@ -190,6 +190,83 @@ describe('InstanceModal - Form Logic and Validation', () => {
         },
       }))
     })
+    it('submits Slurm job options', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <InstanceDialog
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          onSave={mockOnSave}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/Instance Name/), 'qwen')
+      await user.click(screen.getByRole('tab', { name: /Backend/i }))
+      await user.click(screen.getByText('Execution Context'))
+      await user.click(screen.getByLabelText(/Slurm Job/))
+
+      // A Slurm instance is neither external nor a local process
+      expect(screen.queryByLabelText(/External Service/)).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/Command Override/)).not.toBeInTheDocument()
+
+      await user.type(screen.getByLabelText(/Job Command/), '/opt/vllm/bin/slurm-launch.sh qwen')
+      await user.type(screen.getByLabelText(/^Port/), '8019')
+      await user.type(screen.getByLabelText('Job Name'), 'vllm-qwen')
+      await user.type(screen.getByLabelText('Partition'), 'lpi')
+      await user.type(screen.getByLabelText('GPUs'), '2')
+      await user.type(screen.getByLabelText('Extra sbatch Arguments'), '--qos=long')
+
+      await user.click(screen.getByRole('tab', { name: /Advanced/i }))
+      await user.click(screen.getByTestId('dialog-save-button'))
+
+      expect(mockOnSave).toHaveBeenCalledWith('qwen', expect.objectContaining({
+        backend_options: expect.objectContaining({ port: 8019 }),
+        slurm: {
+          command: '/opt/vllm/bin/slurm-launch.sh qwen',
+          job_name: 'vllm-qwen',
+          partition: 'lpi',
+          gpus: 2,
+          extra_args: ['--qos=long'],
+        },
+      }))
+    })
+
+    it('fills external commands from a systemd user unit', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <InstanceDialog
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          onSave={mockOnSave}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/Instance Name/), 'glm')
+      await user.click(screen.getByRole('tab', { name: /Backend/i }))
+      await user.click(screen.getByText('Execution Context'))
+      await user.click(screen.getByLabelText(/External Service/))
+
+      await user.type(screen.getByLabelText('Unit'), 'vllm@glm')
+      await user.type(screen.getByLabelText('SSH Host'), 'remi')
+      await user.click(screen.getByRole('button', { name: 'Fill commands' }))
+
+      // The command inputs show the filled values
+      expect(screen.getByLabelText('Start Command')).toHaveValue('ssh -o BatchMode=yes remi systemctl --user start --no-block vllm@glm')
+
+      await user.type(screen.getByLabelText('Host'), 'remi')
+      await user.type(screen.getByLabelText('Port'), '8010')
+      await user.click(screen.getByRole('tab', { name: /Advanced/i }))
+      await user.click(screen.getByTestId('dialog-save-button'))
+
+      expect(mockOnSave).toHaveBeenCalledWith('glm', expect.objectContaining({
+        external: expect.objectContaining({
+          start_command: ['ssh', '-o', 'BatchMode=yes', 'remi', 'systemctl', '--user', 'start', '--no-block', 'vllm@glm'],
+          stop_command: ['ssh', '-o', 'BatchMode=yes', 'remi', 'systemctl', '--user', 'stop', 'vllm@glm'],
+        }),
+      }))
+    })
   })
 
   describe('Edit Mode', () => {

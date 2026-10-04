@@ -11,6 +11,8 @@ import TextInput from '@/components/form/TextInput'
 import EnvVarsInput from '@/components/form/EnvVarsInput'
 import NumberInput from '@/components/form/NumberInput'
 import CommandInput from '@/components/form/CommandInput'
+import SlurmSection from './SlurmSection'
+import SystemdFill from './SystemdFill'
 import { useBackendSettings, useCustomBackends, useCustomBackendSettings } from '@/hooks/useConfig'
 import PresetDialog from './PresetDialog'
 
@@ -42,6 +44,10 @@ const BackendTab: React.FC<BackendTabProps> = ({
   const backendOptions = formData.backend_options as Record<string, unknown> | undefined
   const external = formData.external
   const isExternal = external !== undefined
+  const slurm = formData.slurm
+  const isSlurm = slurm !== undefined
+  // Remounts the command inputs after "Fill commands" so they show the new values
+  const [fillCount, setFillCount] = useState(0)
 
   const handleExternalChange = (key: keyof NonNullable<CreateInstanceOptions['external']>, value: string[] | undefined) => {
     onChange('external', { ...external, [key]: value })
@@ -136,12 +142,13 @@ const BackendTab: React.FC<BackendTabProps> = ({
           {!showExecutionContext && (
             <div className="text-sm text-muted-foreground">
               {isExternal && <span className="mr-3">External service</span>}
+              {isSlurm && <span className="mr-3">Slurm job</span>}
               {formData.docker_enabled && <span className="mr-3">Docker enabled</span>}
               {formData.command_override && <span className="mr-3">Custom command</span>}
               {formData.environment && Object.keys(formData.environment).length > 0 && (
                 <span>{Object.keys(formData.environment).length} env var{Object.keys(formData.environment).length > 1 ? 's' : ''}</span>
               )}
-              {!isExternal && !formData.docker_enabled && !formData.command_override && (!formData.environment || Object.keys(formData.environment).length === 0) && (
+              {!isExternal && !isSlurm && !formData.docker_enabled && !formData.command_override && (!formData.environment || Object.keys(formData.environment).length === 0) && (
                 <span>Default</span>
               )}
             </div>
@@ -150,16 +157,43 @@ const BackendTab: React.FC<BackendTabProps> = ({
 
         {showExecutionContext && (
           <div className="space-y-4 pl-6 border-l-2 border-muted">
-            <CheckboxInput
-              id="external"
-              label="External Service"
-              value={isExternal}
-              onChange={(value) => onChange('external', value ? {} : undefined)}
-              description="The backend runs outside llamactl (e.g. a systemd unit on another host); llamactl proxies to its host and port and runs the commands below to manage it. Can't be changed after creation."
-            />
+            {!isExternal && (
+              <CheckboxInput
+                id="slurm"
+                label="Slurm Job"
+                value={isSlurm}
+                onChange={(value) => onChange('slurm', value ? { command: '' } : undefined)}
+                description="Run the backend as a Slurm batch job; llamactl submits it, follows it through the queue and proxies to the node it lands on. Can't be changed after creation."
+              />
+            )}
+
+            {isSlurm && slurm && (
+              <SlurmSection
+                slurm={slurm}
+                port={backendOptions?.port as number | undefined}
+                onSlurmChange={(value) => onChange('slurm', value)}
+                onPortChange={(value) => onBackendFieldChange('port', value)}
+              />
+            )}
+
+            {!isSlurm && (
+              <CheckboxInput
+                id="external"
+                label="External Service"
+                value={isExternal}
+                onChange={(value) => onChange('external', value ? {} : undefined)}
+                description="The backend runs outside llamactl (e.g. a systemd unit on another host); llamactl proxies to its host and port and runs the commands below to manage it. Can't be changed after creation."
+              />
+            )}
 
             {isExternal && (
-              <div className="space-y-4">
+              <div className="space-y-4" key={fillCount}>
+                <SystemdFill
+                  onFill={(commands) => {
+                    onChange('external', { ...external, ...commands })
+                    setFillCount((n) => n + 1)
+                  }}
+                />
                 <TextInput
                   id="external_host"
                   label="Host"
@@ -211,7 +245,7 @@ const BackendTab: React.FC<BackendTabProps> = ({
               </div>
             )}
 
-            {!isExternal && formData.backend_type !== BackendType.MLX_LM && (
+            {!isExternal && !isSlurm && formData.backend_type !== BackendType.MLX_LM && (
               <CheckboxInput
                 id="docker_enabled"
                 label="Enable Docker"
@@ -221,7 +255,7 @@ const BackendTab: React.FC<BackendTabProps> = ({
               />
             )}
 
-            {!isExternal && (formData.backend_type === BackendType.MLX_LM || formData.docker_enabled !== true) && (
+            {!isExternal && !isSlurm && (formData.backend_type === BackendType.MLX_LM || formData.docker_enabled !== true) && (
               <TextInput
                 id="command_override"
                 label="Command Override"
@@ -238,7 +272,7 @@ const BackendTab: React.FC<BackendTabProps> = ({
                 label="Environment Variables"
                 value={formData.environment}
                 onChange={(value) => onChange('environment', value)}
-                description="Custom environment variables for the instance"
+                description={isSlurm ? "Exported to the job through sbatch" : "Custom environment variables for the instance"}
               />
             )}
           </div>

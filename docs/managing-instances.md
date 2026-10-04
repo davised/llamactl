@@ -127,6 +127,44 @@ curl -X POST http://localhost:8080/api/v1/instances/qwen \
   }'
 ```
 
+For `systemctl --user` units, **Fill from a systemd user unit** in the External Service section writes these commands for you (leave SSH Host blank for a unit on the llamactl host). It starts the unit with `--no-block`, because a unit that waits for its server's health check in `ExecStartPost` stays `activating` for as long as the model takes to load, longer than the 60-second command timeout. For the same reason its status command counts `activating` as up. If the server logs to a file rather than the journal, give the file path and the logs command uses `tail` instead of `journalctl`.
+
+### Slurm Jobs
+
+A Slurm instance runs its backend server as a batch job. llamactl submits the job with `sbatch`, follows it through the queue with `squeue`, proxies to the node it lands on and cancels it with `scancel` on stop. Enable **Slurm Job** under Execution Context in the Backend tab, or set `slurm` via the API. llamactl doesn't build the server's command line: the job runs whatever `command` you give it (`sbatch --wrap`), so an existing launcher script works unchanged.
+
+- `command` (required): shell command the job runs. It must start the server on the `port` set in `backend_options` (also required). There is no `host`: it is the node the job runs on, mapped to an address with `slurm.node_host_template` in the config.
+- `job_name`: defaults to `llamactl-<instance name>`. When the instance has no job, a queued or running job with this name is picked up, including one you submitted by hand. That's also how jobs are found again after llamactl restarts.
+- `partition`, `nodelist`, `account`, `gpus` (`--gres=gpu:N`), `cpus` (`--cpus-per-task`), `memory` (`--mem`), `time_limit` (`--time`): common `sbatch` options. `extra_args` is passed to `sbatch` unchanged for anything else, e.g. `["--qos=long"]` or `["--gres=gpu:a100:2"]`.
+- `output`: the job's `--output` file. Defaults to `/dev/null`, so nothing is written to the submit directory (often shared storage). Have the server write its own log to node-local storage instead.
+- `log_path`: where the server writes its log on the compute node. `{name}`, `{jobid}` and `{node}` are substituted. Commands run without a shell, so write the path out in full: `$USER` or `~` are not expanded.
+- `logs_command`: reads logs for the Logs dialog while the job runs. The default, `srun --jobid={jobid} --overlap -N1 -n1 tail -n {lines} {log_path}`, runs a short step inside the job's own allocation, so it works without ssh access to compute nodes. Where ssh to nodes is allowed, `["ssh", "-o", "BatchMode=yes", "{node}", "tail", "-n", "{lines}", "{log_path}"]` also works. Logs can't be read once the job ends.
+- Environment variables set on the instance are exported to the job (`sbatch` exports the submitting environment by default).
+
+The instance shows **Queued** (`pending`) while the job waits, **Starting** while the job runs but the server's health check doesn't pass yet, and **Running** once it does. The card shows the job ID, state, node, and the time left or the reason it is still queued. When a job ends on its own, `sacct` reports how: completed or cancelled jobs leave the instance stopped, while failed, timed-out or out-of-memory jobs mark it failed.
+
+Slurm instances default to `on_demand_start: false`, since a queued job can wait for hours; if you enable it, a request to a stopped instance submits the job and waits up to `on_demand_start_timeout`. They also default to `idle_timeout: 0`; set one to have an idle instance's job cancelled, which frees its GPUs. Like external services, Slurm instances use no local ports or capacity, keep running when llamactl shuts down, and can't be switched to another execution type after creation.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/instances/qwen \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "backend_type": "vllm",
+    "backend_options": {"model": "Qwen/Qwen3-8B", "port": 8019},
+    "slurm": {
+      "command": "/shared/vllm/bin/slurm-launch.sh qwen",
+      "job_name": "vllm-qwen",
+      "partition": "gpu",
+      "gpus": 2,
+      "cpus": 32,
+      "memory": "300G",
+      "time_limit": "7-00:00:00",
+      "log_path": "/scratch/alice/vllm-logs/{name}-latest.log"
+    }
+  }'
+```
+
 **Via API**
 
 ```bash

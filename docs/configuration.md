@@ -400,3 +400,18 @@ nodes:                           # Node configuration map
 
 **Environment Variables:**
 - `LLAMACTL_LOCAL_NODE` - Name of the local node
+
+### Slurm Configuration
+
+Settings for instances that run as Slurm jobs (see [Slurm Jobs](managing-instances.md#slurm-jobs)). llamactl runs `sbatch`, `squeue`, `sacct`, `scancel` and `srun` directly; no `slurmrestd` is needed.
+
+```yaml
+slurm:
+  poll_interval: 15s                  # How often squeue is polled (one call covers every Slurm instance)
+  command_prefix: []                  # Prepended to every Slurm command, e.g. ["ssh", "-o", "BatchMode=yes", "submit01"]
+  node_host_template: "{node}"        # Address for a compute node; e.g. "{node}.cluster.example.edu"
+```
+
+- `poll_interval`: one `squeue --me --json` call per interval updates every Slurm instance, so the scheduler isn't queried once per instance. Default `15s`.
+- `command_prefix`: use when llamactl doesn't run on a host that can submit jobs. Instance environment variables aren't forwarded through a prefix such as ssh.
+- `node_host_template`: `{node}` is replaced with the node name from `squeue`. Default `{node}`.

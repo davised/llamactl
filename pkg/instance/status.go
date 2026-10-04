@@ -15,6 +15,10 @@ const (
 	Failed
 	Restarting
 	ShuttingDown
+	// Pending: a Slurm job is queued, waiting for an allocation
+	Pending
+	// Starting: a Slurm job is running but the server isn't healthy yet
+	Starting
 )
 
 var nameToStatus = map[string]Status{
@@ -23,6 +27,8 @@ var nameToStatus = map[string]Status{
 	"failed":        Failed,
 	"restarting":    Restarting,
 	"shutting_down": ShuttingDown,
+	"pending":       Pending,
+	"starting":      Starting,
 }
 
 var statusToName = map[Status]string{
@@ -31,6 +37,29 @@ var statusToName = map[Status]string{
 	Failed:       "failed",
 	Restarting:   "restarting",
 	ShuttingDown: "shutting_down",
+	Pending:      "pending",
+	Starting:     "starting",
+}
+
+// PersistedName returns the name stored in the database. The instances
+// table only accepts the original statuses, so the Slurm-only transitional
+// states are stored as "restarting"; Slurm instances re-read their real
+// state from squeue on startup, so nothing is lost.
+func (s Status) PersistedName() string {
+	switch s {
+	case Pending, Starting:
+		return "restarting"
+	}
+	if name, ok := statusToName[s]; ok {
+		return name
+	}
+	return "stopped"
+}
+
+// IsActive reports whether the instance is running or on its way to
+// running (a queued or starting Slurm job)
+func (s Status) IsActive() bool {
+	return s == Running || s == Pending || s == Starting
 }
 
 // Status enum JSON marshaling methods

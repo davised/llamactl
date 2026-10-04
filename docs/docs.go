@@ -2373,6 +2373,9 @@ const docTemplate = `{
                 "server": {
                     "$ref": "#/definitions/config.ServerConfig"
                 },
+                "slurm": {
+                    "$ref": "#/definitions/config.SlurmConfig"
+                },
                 "version": {
                     "type": "string"
                 }
@@ -2691,6 +2694,27 @@ const docTemplate = `{
                 }
             }
         },
+        "config.SlurmConfig": {
+            "type": "object",
+            "properties": {
+                "command_prefix": {
+                    "description": "Prepended to every Slurm command, e.g. [\"ssh\", \"-o\", \"BatchMode=yes\", \"submit01\"]\nwhen llamactl doesn't run on a host that can submit jobs",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "node_host_template": {
+                    "description": "Turns a compute node name from squeue into the host llamactl connects\nto; \"{node}\" is replaced with the node name (default \"{node}\"), e.g.\n\"{node}.cluster.example.edu\"",
+                    "type": "string"
+                },
+                "poll_interval": {
+                    "description": "How often squeue is polled to update Slurm instances (default 15s)",
+                    "type": "string",
+                    "example": "15s"
+                }
+            }
+        },
         "instance.ExternalOptions": {
             "type": "object",
             "properties": {
@@ -2790,6 +2814,74 @@ const docTemplate = `{
                 "restart_delay": {
                     "description": "seconds",
                     "type": "integer"
+                },
+                "slurm": {
+                    "description": "Slurm job: the backend runs as a batch job on a compute node",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/instance.SlurmOptions"
+                        }
+                    ]
+                }
+            }
+        },
+        "instance.SlurmOptions": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "type": "string"
+                },
+                "command": {
+                    "description": "Command is the shell command the job runs (sbatch --wrap). It must\nstart the server on the port set in backend options.",
+                    "type": "string"
+                },
+                "cpus": {
+                    "description": "CPUs requests --cpus-per-task",
+                    "type": "integer"
+                },
+                "extra_args": {
+                    "description": "ExtraArgs are passed to sbatch unchanged, e.g. [\"--qos=long\"]",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "gpus": {
+                    "description": "GPUs requests --gres=gpu:\u003cn\u003e; use ExtraArgs for typed GPUs or --gpus",
+                    "type": "integer"
+                },
+                "job_name": {
+                    "description": "JobName defaults to \"llamactl-\u003cinstance name\u003e\". Running jobs with this\nname are picked up automatically, including ones submitted by hand.",
+                    "type": "string"
+                },
+                "log_path": {
+                    "description": "LogPath is where the server writes its log on the compute node.\n\"{name}\", \"{jobid}\" and \"{node}\" are substituted.",
+                    "type": "string"
+                },
+                "logs_command": {
+                    "description": "LogsCommand prints recent log lines. \"{jobid}\", \"{node}\", \"{lines}\",\n\"{log_path}\" and \"{name}\" are substituted. Defaults to\nsrun --jobid={jobid} --overlap -N1 -n1 tail -n {lines} {log_path}.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "memory": {
+                    "description": "Memory requests --mem, e.g. \"300G\"",
+                    "type": "string"
+                },
+                "nodelist": {
+                    "type": "string"
+                },
+                "output": {
+                    "description": "Output is the job's stdout/stderr file (--output). Defaults to\n/dev/null so nothing lands in the submit directory; the server should\nwrite its own log to node-local storage (see LogPath).",
+                    "type": "string"
+                },
+                "partition": {
+                    "type": "string"
+                },
+                "time_limit": {
+                    "description": "TimeLimit requests --time, e.g. \"1-00:00:00\"",
+                    "type": "string"
                 }
             }
         },

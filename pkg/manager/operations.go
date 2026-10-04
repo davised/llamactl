@@ -140,7 +140,7 @@ func (im *instanceManager) CreateInstance(name string, options *instance.Options
 		}
 	}
 	localInstanceCount := totalInstances - remoteCount
-	if options.External == nil && localInstanceCount >= im.globalConfig.Instances.MaxInstances && im.globalConfig.Instances.MaxInstances != -1 {
+	if !options.RunsElsewhere() && localInstanceCount >= im.globalConfig.Instances.MaxInstances && im.globalConfig.Instances.MaxInstances != -1 {
 		return nil, fmt.Errorf("maximum number of instances (%d) reached", im.globalConfig.Instances.MaxInstances)
 	}
 
@@ -149,7 +149,7 @@ func (im *instanceManager) CreateInstance(name string, options *instance.Options
 	currentPort := im.getPortFromOptions(options)
 	var allocatedPort int
 	switch {
-	case options.External != nil:
+	case options.RunsElsewhere():
 		// validateExternal already required an explicit port
 	case currentPort == 0:
 		// Allocate a port if not specified
@@ -270,8 +270,8 @@ func (im *instanceManager) UpdateInstance(name string, options *instance.Options
 	}
 
 	// The executor is chosen when the instance is created
-	if (options.External != nil) != inst.IsExternal() {
-		return nil, validation.ValidationError(fmt.Errorf("cannot switch instance %s between external and local; delete and recreate it", name))
+	if executorKind(options) != executorKind(inst.GetOptions()) {
+		return nil, validation.ValidationError(fmt.Errorf("cannot switch instance %s between local, external and Slurm execution; delete and recreate it", name))
 	}
 
 	// Lock this specific instance only
@@ -376,7 +376,7 @@ func (im *instanceManager) DeleteInstance(name string) error {
 	defer im.unlockAndCleanup(name)
 
 	status := inst.GetStatus()
-	if status == instance.Running || status == instance.Restarting {
+	if status.IsActive() || status == instance.Restarting {
 		return fmt.Errorf("instance with name %s is still running, stop it before deleting", name)
 	}
 
@@ -423,8 +423,9 @@ func (im *instanceManager) StartInstance(name string) (*instance.Instance, error
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Idempotent: if already running, just return success
-	if inst.IsRunning() {
+	// Idempotent: if already running (or a Slurm job is on its way up),
+	// just return success
+	if inst.IsActive() {
 		return inst, nil
 	}
 
@@ -483,8 +484,9 @@ func (im *instanceManager) StopInstance(name string) (*instance.Instance, error)
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Idempotent: if already stopped, just return success
-	if !inst.IsRunning() {
+	// Idempotent: if already stopped, just return success. A queued or
+	// starting Slurm job counts as running, so it can be cancelled.
+	if !inst.IsActive() {
 		return inst, nil
 	}
 
@@ -527,7 +529,7 @@ func (im *instanceManager) RestartInstance(name string) (*instance.Instance, err
 	defer lock.Unlock()
 
 	// Stop the instance
-	if inst.IsRunning() {
+	if inst.IsActive() {
 		if err := inst.Stop(); err != nil {
 			return nil, fmt.Errorf("failed to stop instance %s: %w", name, err)
 		}
@@ -578,7 +580,7 @@ func (im *instanceManager) setPortInOptions(options *instance.Options, port int)
 // a model set. Runs in the manager because options lack config access.
 func (im *instanceManager) validateCustomBackend(options *instance.Options) error {
 	// External instances never run the custom backend's command
-	if options.BackendOptions.BackendType != backends.BackendTypeCustom || options.External != nil {
+	if options.BackendOptions.BackendType != backends.BackendTypeCustom || options.RunsElsewhere() {
 		return nil
 	}
 
@@ -621,6 +623,19 @@ func (im *instanceManager) validateCustomBackend(options *instance.Options) erro
 // validateExternal checks an external instance's commands and requires an
 // explicit host and port, since there is no local process to assign them.
 func (im *instanceManager) validateExternal(options *instance.Options) error {
+	if options.External != nil && options.Slurm != nil {
+		return validation.ValidationError(fmt.Errorf("an instance cannot be both external and a Slurm job"))
+	}
+	if options.Slurm != nil {
+		if err := options.Slurm.Validate(); err != nil {
+			return validation.ValidationError(err)
+		}
+		// The host is the node the job lands on; only the port is fixed
+		if options.BackendOptions.GetPort() <= 0 {
+			return validation.ValidationError(fmt.Errorf("slurm instances require a port in backend options"))
+		}
+		return nil
+	}
 	if options.External == nil {
 		return nil
 	}
@@ -657,4 +672,18 @@ func (im *instanceManager) CountRunningInGroup(group string) int {
 		}
 	}
 	return count
+}
+
+// executorKind names how an instance's server is run: "local", "external"
+// or "slurm".
+func executorKind(options *instance.Options) string {
+	switch {
+	case options == nil:
+		return "local"
+	case options.Slurm != nil:
+		return "slurm"
+	case options.External != nil:
+		return "external"
+	}
+	return "local"
 }

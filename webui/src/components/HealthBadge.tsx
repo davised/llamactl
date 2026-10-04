@@ -2,7 +2,7 @@
 import type React from "react";
 import { Badge } from "@/components/ui/badge";
 import type { HealthStatus } from "@/types/instance";
-import { CheckCircle, Loader2, XCircle, Clock } from "lucide-react";
+import { CheckCircle, Loader2, XCircle, Clock, Hourglass } from "lucide-react";
 
 interface HealthBadgeProps {
   health?: HealthStatus;
@@ -17,6 +17,8 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ health }) => {
     switch (health.state) {
       case "ready":
         return <CheckCircle className="h-3 w-3" />;
+      case "pending":
+        return <Hourglass className="h-3 w-3" />;
       case "starting":
         return <Loader2 className="h-3 w-3 animate-spin" />;
       case "restarting":
@@ -34,6 +36,8 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ health }) => {
     switch (health.state) {
       case "ready":
         return "default";
+      case "pending":
+        return "outline";
       case "starting":
         return "outline";
       case "restarting":
@@ -51,6 +55,8 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ health }) => {
     switch (health.state) {
       case "ready":
         return "Ready";
+      case "pending":
+        return "Queued";
       case "starting":
         return "Starting";
       case "restarting":

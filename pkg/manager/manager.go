@@ -36,6 +36,7 @@ type instanceManager struct {
 	db        database.InstanceStore
 	remote    *remoteManager
 	lifecycle *lifecycleManager
+	slurm     *slurmPoller
 
 	// Configuration
 	globalConfig *config.AppConfig
@@ -83,6 +84,10 @@ func New(globalConfig *config.AppConfig, db database.InstanceStore) InstanceMana
 	// Start the lifecycle manager
 	im.lifecycle.start()
 
+	// Follow Slurm jobs (a no-op while there are no Slurm instances)
+	im.slurm = newSlurmPoller(im)
+	im.slurm.start()
+
 	return im
 }
 
@@ -93,8 +98,10 @@ func (im *instanceManager) persistInstance(inst *instance.Instance) error {
 
 func (im *instanceManager) Shutdown() {
 	im.shutdownOnce.Do(func() {
-		// 1. Stop lifecycle manager (stops timeout checker)
+		// 1. Stop lifecycle manager (stops timeout checker) and the Slurm
+		// poller. Slurm jobs keep running; they are picked up again on start.
 		im.lifecycle.stop()
+		im.slurm.stop()
 
 		// 2. Get running instances (no lock needed - registry handles it)
 		running := im.registry.listRunning()

@@ -5,6 +5,7 @@ type HealthCallback = (health: HealthStatus) => void
 
 // Polling intervals based on health state (in milliseconds)
 const POLLING_INTERVALS: Record<HealthState, number> = {
+  'pending': 15000,      // 15 seconds - queued Slurm job (squeue is polled at a similar rate)
   'starting': 5000,      // 5 seconds - frequent during startup
   'restarting': 5000,    // 5 seconds - restart in progress
   'shutting_down': 3000, // 3 seconds - monitor shutdown progress
@@ -98,6 +99,8 @@ class HealthService {
       case 'failed': return 'failed'
       case 'restarting': return 'restarting'
       case 'shutting_down': return 'shutting_down'
+      case 'pending': return 'pending'
+      case 'starting': return 'starting'
     }
   }
 

@@ -12,9 +12,11 @@ export const BackendType = {
 
 export type BackendTypeValue = typeof BackendType[keyof typeof BackendType]
 
-export type InstanceStatus = 'running' | 'stopped' | 'failed' | 'restarting' | 'shutting_down'
+// 'pending' (queued) and 'starting' (running, not healthy yet) are used by
+// Slurm job instances
+export type InstanceStatus = 'running' | 'stopped' | 'failed' | 'restarting' | 'shutting_down' | 'pending' | 'starting'
 
-export type HealthState = 'stopped' | 'starting' | 'ready' | 'failed' | 'restarting' | 'shutting_down'
+export type HealthState = 'stopped' | 'pending' | 'starting' | 'ready' | 'failed' | 'restarting' | 'shutting_down'
 
 export interface HealthStatus {
   state: HealthState
@@ -24,9 +26,24 @@ export interface HealthStatus {
   source: 'backend' | 'http'
 }
 
+// The Slurm job behind a Slurm instance (the current one, or the last one
+// after it ends)
+export interface SlurmJob {
+  job_id: string;
+  name: string;
+  state: string;
+  reason?: string;
+  nodes?: string;
+  partition?: string;
+  time_limit?: number; // minutes
+  start_time?: number; // Unix seconds
+  submit_time?: number; // Unix seconds
+}
+
 export interface Instance {
   id: number;
   name: string;
   status: InstanceStatus;
   options?: CreateInstanceOptions;
+  slurm_job?: SlurmJob;
 }

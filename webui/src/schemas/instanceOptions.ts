@@ -57,6 +57,23 @@ export const CreateInstanceOptionsSchema = z.object({
     logs_command: z.array(z.string()).optional(),
   }).optional(),
 
+  // Slurm job: the backend runs as a batch job on a compute node
+  slurm: z.object({
+    command: z.string(),
+    job_name: z.string().optional(),
+    partition: z.string().optional(),
+    nodelist: z.string().optional(),
+    account: z.string().optional(),
+    gpus: z.number().optional(),
+    cpus: z.number().optional(),
+    memory: z.string().optional(),
+    time_limit: z.string().optional(),
+    output: z.string().optional(),
+    extra_args: z.array(z.string()).optional(),
+    log_path: z.string().optional(),
+    logs_command: z.array(z.string()).optional(),
+  }).optional(),
+
   // Backend configuration
   backend_type: z.enum([BackendType.LLAMA_CPP, BackendType.MLX_LM, BackendType.VLLM, BackendType.CUSTOM]).optional(),
   backend_options: BackendOptionsSchema.optional(),
